@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XIRR Calculator - Lakeland Hotel Investment</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>XIRR Calculator</h1>
+            <p class="subtitle">Calculate Extended Internal Rate of Return for your investment</p>
+        </header>
+
+        <main>
+            <section class="investment-section">
+                <h2>Initial Investment</h2>
+                <div class="form-group">
+                    <label for="investmentDate">Investment Date</label>
+                    <input type="date" id="investmentDate" value="2022-04-01">
+                </div>
+                <div class="form-group">
+                    <label for="investmentAmount">Investment Amount ($)</label>
+                    <input type="number" id="investmentAmount" placeholder="Enter investment amount" step="0.01">
+                </div>
+            </section>
+
+            <section class="distributions-section">
+                <h2>Distributions</h2>
+                <div class="distributions-header">
+                    <span>Date</span>
+                    <span>Amount ($)</span>
+                    <span>Action</span>
+                </div>
+                <div id="distributionsList">
+                    <!-- Distribution rows will be added here -->
+                </div>
+                <button type="button" id="addDistribution" class="btn btn-secondary">+ Add Distribution</button>
+            </section>
+
+            <section class="actions-section">
+                <button type="button" id="calculateXIRR" class="btn btn-primary">Calculate XIRR</button>
+                <button type="button" id="clearAll" class="btn btn-outline">Clear All</button>
+                <button type="button" id="loadSample" class="btn btn-outline">Load Sample Data</button>
+            </section>
+
+            <section class="results-section" id="resultsSection" style="display: none;">
+                <h2>Results</h2>
+                <div class="result-card">
+                    <div class="result-item">
+                        <span class="result-label">XIRR (Annualized Return)</span>
+                        <span class="result-value" id="xirrResult">-</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">Total Invested</span>
+                        <span class="result-value" id="totalInvested">-</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">Total Distributions</span>
+                        <span class="result-value" id="totalDistributions">-</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">Multiple on Invested Capital</span>
+                        <span class="result-value" id="moic">-</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="cash-flows-section" id="cashFlowsSection" style="display: none;">
+                <h2>Cash Flow Summary</h2>
+                <table class="cash-flow-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Cash Flow</th>
+                            <th>Type</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cashFlowsBody">
+                    </tbody>
+                </table>
+            </section>
+        </main>
+
+        <footer>
+            <p>XIRR (Extended Internal Rate of Return) accounts for irregular cash flow timing.</p>
+        </footer>
+    </div>
+
+    <script src="xirr.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
