@@ -1,27 +1,18 @@
 /**
  * McKibbon Income Statement PDF Parser
  * Extracts financial data from the standard McKibbon PDF format.
- * 
- * The PDF layout has:
- * - Item labels in the middle column
- * - PTD Budget | PTD % | PTD POR | PTD Actual | PTD % | PTD POR | PTD LY | ... on left
- * - YTD columns on right
+ *
+ * PDF Layout (after pdf-parse text extraction):
+ * - Numbers are concatenated without spaces
+ * - Stats section: labels on own lines, PTD values on line above, YTD on line below
+ * - Financial section: PTD values + Label + YTD values on single line, OR label on own line
+ * - Each side has up to 9 columns: [Budget, Budget%, BudgetPOR, Actual, Actual%, ActualPOR, PY, PY%, PYPOR]
+ * - Stats lines have 6 columns: [Budget, BudgetPOR, Actual, ActualPOR, PY, PYPOR]
  */
 
 import { MonthlyPeriod } from "./types";
 
-interface ParsedRow {
-  label: string;
-  ptdBudget: number | null;
-  ptdBudgetPct: number | null;
-  ptdActual: number | null;
-  ptdActualPct: number | null;
-  ptdLY: number | null;
-  ptdLYPct: number | null;
-  ytdBudget: number | null;
-  ytdActual: number | null;
-  ytdLY: number | null;
-}
+// ─── Number Parsing ───────────────────────────────────────────────────────────
 
 /** Parse a number from McKibbon format: handles ($1,234), 1,234, 75.20%, $142.38 */
 function parseNumber(raw: string | undefined): number | null {
@@ -40,13 +31,473 @@ function toCents(val: number | null): number | null {
   return Math.round(val * 100);
 }
 
-/** Convert percentage string to decimal (75.2% -> 0.752) */
+/** Convert percentage to decimal (75.2 -> 0.752) */
 function pctToDecimal(val: number | null): number | null {
   if (val == null) return null;
-  // If already < 1, it might already be decimal
   if (Math.abs(val) <= 1 && Math.abs(val) > 0) return val;
   return val / 100;
 }
+
+// ─── Tokenizer ────────────────────────────────────────────────────────────────
+
+/**
+ * Tokenize a concatenated number string from McKibbon PDF.
+ * Handles patterns like: 742,566100.00%235.29771,202100.00%244.98
+ *
+ * Token types (matched in priority order):
+ * 1. Negative numbers in parens: (1,234) or (1,234.56)
+ * 2. Comma numbers with decimals and %: 1,234.56%
+ * 3. Percentage with decimals: 100.00% or 0.03%
+ * 4. Comma numbers with decimals: 1,234.56
+ * 5. Comma numbers (integers): 742,566
+ * 6. Decimal numbers: 235.29 (limited to 2 decimal places to avoid over-matching)
+ * 7. Plain integers: 0, 1, 42
+ */
+function tokenizeNumbers(text: string): string[] {
+  // The key insight: all decimals in McKibbon PDFs have exactly 2 decimal places.
+  // This lets us split 235.29771,202 correctly as [235.29, 771,202].
+  const tokenRegex =
+    /\([\d,]+(?:\.\d{2})?\)|\d{1,3}(?:,\d{3})+\.\d{2}%|\d+\.\d{2}%|\d{1,3}(?:,\d{3})+\.\d{2}|\d{1,3}(?:,\d{3})+|\d+\.\d{2}|\d+/g;
+
+  const rawTokens: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = tokenRegex.exec(text)) !== null) {
+    rawTokens.push(match[0]);
+  }
+
+  // Post-process: split merged tokens where a dollar amount concatenated with a percentage.
+  // pdf-parse produces these when adjacent PDF text elements have no space between them.
+  // Two detectable patterns:
+  //   A) value > 100%  → impossible as a real percentage → e.g. "1170.02%", "240.00%"
+  //   B) starts with "00" → invalid percentage prefix → e.g. "00.00%" (zero dollar + 0.00%)
+  // In both cases: last digit of the integer part is the first digit of the absorbed percentage.
+  const tokens: string[] = [];
+  for (const t of rawTokens) {
+    if (t.endsWith("%")) {
+      const dotIdx = t.indexOf(".");
+      const intStr = t.slice(0, dotIdx); // digits before decimal
+      const decStr = t.slice(dotIdx + 1, -1); // 2 digits after decimal, before %
+      const pctValue = parseFloat(t.replace(/%$/, ""));
+
+      // Case A: value > 100% — can't be valid, must be merged dollar + percentage
+      if (pctValue > 100) {
+        const dollarStr = intStr.slice(0, -1); // strip last digit (first digit of the pct)
+        const pctFirstDigit = intStr.slice(-1);
+        tokens.push(dollarStr);
+        tokens.push(`${pctFirstDigit}.${decStr}%`);
+        continue;
+      }
+
+      // Case B: starts with "00" — zero dollar merged with 0.xx%
+      if (intStr.startsWith("00")) {
+        tokens.push("0");
+        tokens.push(`0.${decStr}%`);
+        continue;
+      }
+    }
+    tokens.push(t);
+  }
+
+  return tokens;
+}
+
+// ─── Line Classification & Label Finding ──────────────────────────────────────
+
+/** Check if a line is purely numeric (no alphabetic chars) */
+function isNumericLine(line: string): boolean {
+  // Allow digits, commas, periods, percent signs, parens, dashes, spaces
+  return /^[\d,.\-%() ]+$/.test(line.trim());
+}
+
+/**
+ * Find the label text embedded in a line of numbers.
+ * Returns { label, ptdText, ytdText } or null if no label found.
+ */
+function splitAtLabel(line: string): { label: string; ptdText: string; ytdText: string } | null {
+  // Labels contain letters. Find the first run of alphabetic text (may include &, ., -, spaces)
+  // Pattern: look for a sequence starting with a letter, possibly containing letters, spaces, &, ., -
+  const labelMatch = line.match(/([A-Za-z][A-Za-z &.\-'\/,]*[A-Za-z.])/);
+  if (!labelMatch) return null;
+
+  const label = labelMatch[1].trim();
+  const labelStart = line.indexOf(labelMatch[1]);
+  const labelEnd = labelStart + labelMatch[1].length;
+
+  return {
+    label,
+    ptdText: line.substring(0, labelStart),
+    ytdText: line.substring(labelEnd),
+  };
+}
+
+// ─── Structured Row Parsing ───────────────────────────────────────────────────
+
+interface ParsedValues {
+  budget: number | null;
+  budgetPct: number | null;
+  actual: number | null;
+  actualPct: number | null;
+  py: number | null;
+  pyPct: number | null;
+}
+
+/**
+ * Extract Budget, Actual, PY from a tokenized number string.
+ * For 9-token lines (revenue/expense): indices 0, 3, 6 are the dollar values; 1, 4, 7 are percentages
+ * For 6-token lines (stats): indices 0, 2, 4 are the values
+ * For 3-token lines: indices 0, 1, 2
+ */
+function extractValues(tokens: string[]): ParsedValues {
+  const nums = tokens.map(t => parseNumber(t));
+
+  if (tokens.length >= 9) {
+    // 9-column: [Budget, Budget%, BudgetPOR, Actual, Actual%, ActualPOR, PY, PY%, PYPOR]
+    return {
+      budget: nums[0] ?? null,
+      budgetPct: nums[1] ?? null,
+      actual: nums[3] ?? null,
+      actualPct: nums[4] ?? null,
+      py: nums[6] ?? null,
+      pyPct: nums[7] ?? null,
+    };
+  } else if (tokens.length >= 6) {
+    // 6-column stats: [Budget, BudgetPOR, Actual, ActualPOR, PY, PYPOR]
+    return {
+      budget: nums[0] ?? null,
+      budgetPct: null,
+      actual: nums[2] ?? null,
+      actualPct: null,
+      py: nums[4] ?? null,
+      pyPct: null,
+    };
+  } else if (tokens.length >= 3) {
+    return {
+      budget: nums[0] ?? null,
+      budgetPct: null,
+      actual: nums[1] ?? null,
+      actualPct: null,
+      py: nums[2] ?? null,
+      pyPct: null,
+    };
+  }
+  return { budget: nums[0] ?? null, budgetPct: null, actual: nums[0] ?? null, actualPct: null, py: null, pyPct: null };
+}
+
+// ─── Stats Section Parser ─────────────────────────────────────────────────────
+
+/**
+ * For stats rows where the label is on its own line, the PTD values are on the
+ * preceding line and YTD values are on the following line.
+ * Special case: "Rooms Available" and "Rooms Occupied" have integer POR values (always 1)
+ * that get concatenated with the room counts (e.g., "3,52813,52813,5281").
+ * We handle this by matching (comma_number)(single_digit) patterns.
+ */
+function parseRoomCountLine(text: string): number[] {
+  // Match comma-numbers followed by their POR digit (always 1 for rooms)
+  const matches: number[] = [];
+  const regex = /(\d{1,3}(?:,\d{3})+)(\d)/g;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(text)) !== null) {
+    matches.push(parseNumber(m[1])!);
+  }
+  if (matches.length >= 3) return matches;
+
+  // Fallback: try standard tokenization
+  const tokens = tokenizeNumbers(text);
+  return tokens.map(t => parseNumber(t)).filter((n): n is number => n !== null);
+}
+
+interface StatsResult {
+  occupancy: ParsedValues;
+  adr: ParsedValues;
+  revpar: ParsedValues;
+  roomsSold: ParsedValues;
+  roomsAvailable: ParsedValues;
+  occupancyYtd: ParsedValues;
+  adrYtd: ParsedValues;
+  revparYtd: ParsedValues;
+  roomsSoldYtd: ParsedValues;
+  roomsAvailableYtd: ParsedValues;
+}
+
+function parseStatsSection(lines: string[]): Partial<StatsResult> {
+  const result: Partial<StatsResult> = {};
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    if (line === "Occupancy") {
+      const ptdLine = i > 0 ? lines[i - 1].trim() : "";
+      const ytdLine = i < lines.length - 1 ? lines[i + 1].trim() : "";
+      const ptdTokens = tokenizeNumbers(ptdLine);
+      const ytdTokens = tokenizeNumbers(ytdLine);
+      // Occupancy tokens are percentages: [Budget%, BudgetPOR%, Actual%, ActualPOR%, PY%, PYPOR%]
+      if (ptdTokens.length >= 6) {
+        result.occupancy = {
+          budget: parseNumber(ptdTokens[0]),
+          budgetPct: null,
+          actual: parseNumber(ptdTokens[2]),
+          actualPct: null,
+          py: parseNumber(ptdTokens[4]),
+          pyPct: null,
+        };
+      }
+      if (ytdTokens.length >= 6) {
+        result.occupancyYtd = {
+          budget: parseNumber(ytdTokens[0]),
+          budgetPct: null,
+          actual: parseNumber(ytdTokens[2]),
+          actualPct: null,
+          py: parseNumber(ytdTokens[4]),
+          pyPct: null,
+        };
+      }
+    }
+
+    if (line === "Average Daily Rate") {
+      const ptdLine = i > 0 ? lines[i - 1].trim() : "";
+      const ytdLine = i < lines.length - 1 ? lines[i + 1].trim() : "";
+      const ptdTokens = tokenizeNumbers(ptdLine);
+      const ytdTokens = tokenizeNumbers(ytdLine);
+      if (ptdTokens.length >= 6) {
+        result.adr = {
+          budget: parseNumber(ptdTokens[0]),
+          budgetPct: null,
+          actual: parseNumber(ptdTokens[2]),
+          actualPct: null,
+          py: parseNumber(ptdTokens[4]),
+          pyPct: null,
+        };
+      }
+      if (ytdTokens.length >= 6) {
+        result.adrYtd = {
+          budget: parseNumber(ytdTokens[0]),
+          budgetPct: null,
+          actual: parseNumber(ytdTokens[2]),
+          actualPct: null,
+          py: parseNumber(ytdTokens[4]),
+          pyPct: null,
+        };
+      }
+    }
+
+    if (line === "Revenue per Avl Room") {
+      const ptdLine = i > 0 ? lines[i - 1].trim() : "";
+      const ytdLine = i < lines.length - 1 ? lines[i + 1].trim() : "";
+      const ptdTokens = tokenizeNumbers(ptdLine);
+      const ytdTokens = tokenizeNumbers(ytdLine);
+      if (ptdTokens.length >= 6) {
+        result.revpar = {
+          budget: parseNumber(ptdTokens[0]),
+          budgetPct: null,
+          actual: parseNumber(ptdTokens[2]),
+          actualPct: null,
+          py: parseNumber(ptdTokens[4]),
+          pyPct: null,
+        };
+      }
+      if (ytdTokens.length >= 6) {
+        result.revparYtd = {
+          budget: parseNumber(ytdTokens[0]),
+          budgetPct: null,
+          actual: parseNumber(ytdTokens[2]),
+          actualPct: null,
+          py: parseNumber(ytdTokens[4]),
+          pyPct: null,
+        };
+      }
+    }
+
+    if (line === "Rooms Occupied") {
+      const ptdLine = i > 0 ? lines[i - 1].trim() : "";
+      const ytdLine = i < lines.length - 1 ? lines[i + 1].trim() : "";
+      const ptdVals = parseRoomCountLine(ptdLine);
+      const ytdVals = parseRoomCountLine(ytdLine);
+      result.roomsSold = {
+        budget: ptdVals[0] ?? null,
+        budgetPct: null,
+        actual: ptdVals[1] ?? null,
+        actualPct: null,
+        py: ptdVals[2] ?? null,
+        pyPct: null,
+      };
+      result.roomsSoldYtd = {
+        budget: ytdVals[0] ?? null,
+        budgetPct: null,
+        actual: ytdVals[1] ?? null,
+        actualPct: null,
+        py: ytdVals[2] ?? null,
+        pyPct: null,
+      };
+    }
+
+    // Rooms Available might be on its own line or embedded
+    if (line.includes("Rooms Available")) {
+      const split = splitAtLabel(line);
+      if (split && split.label === "Rooms Available") {
+        const ptdVals = parseRoomCountLine(split.ptdText);
+        const ytdVals = parseRoomCountLine(split.ytdText);
+        result.roomsAvailable = {
+          budget: ptdVals[0] ?? null,
+          budgetPct: null,
+          actual: ptdVals[1] ?? null,
+          actualPct: null,
+          py: ptdVals[2] ?? null,
+          pyPct: null,
+        };
+        result.roomsAvailableYtd = {
+          budget: ytdVals[0] ?? null,
+          budgetPct: null,
+          actual: ytdVals[1] ?? null,
+          actualPct: null,
+          py: ytdVals[2] ?? null,
+          pyPct: null,
+        };
+      } else if (line.trim() === "Rooms Available") {
+        // Label on own line
+        const ptdLine2 = i > 0 ? lines[i - 1].trim() : "";
+        const ytdLine2 = i < lines.length - 1 ? lines[i + 1].trim() : "";
+        const ptdVals = parseRoomCountLine(ptdLine2);
+        const ytdVals = parseRoomCountLine(ytdLine2);
+        result.roomsAvailable = {
+          budget: ptdVals[0] ?? null,
+          budgetPct: null,
+          actual: ptdVals[1] ?? null,
+          actualPct: null,
+          py: ptdVals[2] ?? null,
+          pyPct: null,
+        };
+        result.roomsAvailableYtd = {
+          budget: ytdVals[0] ?? null,
+          budgetPct: null,
+          actual: ytdVals[1] ?? null,
+          actualPct: null,
+          py: ytdVals[2] ?? null,
+          pyPct: null,
+        };
+      }
+    }
+  }
+
+  return result;
+}
+
+// ─── Financial Row Parser ─────────────────────────────────────────────────────
+
+interface FinancialRow {
+  ptd: ParsedValues;
+  ytd: ParsedValues;
+}
+
+/**
+ * Find and parse a financial row by exact label.
+ *
+ * The label may be:
+ * 1. Embedded in the middle of a single line (PTD numbers + label + YTD numbers)
+ * 2. On its own line with PTD values on the line above and YTD on the line below
+ *
+ * For exact matching: the label must be the complete alphabetic segment
+ * (not a substring of a longer label).
+ */
+function findFinancialRow(lines: string[], label: string): FinancialRow | null {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    // Case 1: Label on its own line (possibly with whitespace)
+    if (line === label) {
+      const ptdLine = i > 0 ? lines[i - 1].trim() : "";
+      const ytdLine = i < lines.length - 1 ? lines[i + 1].trim() : "";
+
+      if (isNumericLine(ptdLine) && ptdLine.length > 0) {
+        const ptdTokens = tokenizeNumbers(ptdLine);
+        const ytdTokens = tokenizeNumbers(ytdLine);
+        return {
+          ptd: extractValues(ptdTokens),
+          ytd: extractValues(ytdTokens),
+        };
+      }
+    }
+
+    // Case 2: Label embedded in a line with numbers
+    if (line.includes(label)) {
+      const split = splitAtLabel(line);
+      if (!split) continue;
+
+      // Exact match: the extracted label must equal our target or contain it as
+      // a standalone segment. For labels like "Total Sales", we need to make sure
+      // we don't match "Total Sales Dept. Exp." or "Total Sales Empl. Exp."
+      const extractedLabel = split.label;
+
+      // Check if the extracted label IS the target, or the target appears as a
+      // word-boundary-delimited segment
+      if (extractedLabel !== label) {
+        // Allow match if the label appears at the start and is immediately
+        // followed by end-of-string (i.e., it's the entire label)
+        // Also handle labels with spaces like "G O P" — check exact match
+        if (!isExactLabelMatch(extractedLabel, label)) {
+          continue;
+        }
+      }
+
+      const ptdTokens = tokenizeNumbers(split.ptdText);
+      const ytdTokens = tokenizeNumbers(split.ytdText);
+      return {
+        ptd: extractValues(ptdTokens),
+        ytd: extractValues(ytdTokens),
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Check if extractedLabel is an exact match for target label.
+ * Handles cases like extractedLabel="Admin & General" matching target="Admin & General"
+ * but extractedLabel="Total Sales Dept. Exp." NOT matching target="Total Sales"
+ */
+function isExactLabelMatch(extractedLabel: string, target: string): boolean {
+  // Exact string match
+  if (extractedLabel === target) return true;
+
+  // The extracted label starts with the target and the next char is not a letter
+  // (handles cases where split captures the label plus trailing text)
+  if (extractedLabel.startsWith(target)) {
+    const rest = extractedLabel.substring(target.length).trim();
+    if (rest === "") return true;
+    // If remainder starts with non-letter, it's likely trailing POR/numbers
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Sum multiple financial rows (e.g., for insurance which is split across 4 lines).
+ */
+function sumFinancialRows(lines: string[], labels: string[]): FinancialRow | null {
+  let hasSome = false;
+  const totals: FinancialRow = {
+    ptd: { budget: 0, budgetPct: null, actual: 0, actualPct: null, py: 0, pyPct: null },
+    ytd: { budget: 0, budgetPct: null, actual: 0, actualPct: null, py: 0, pyPct: null },
+  };
+
+  for (const label of labels) {
+    const row = findFinancialRow(lines, label);
+    if (row) {
+      hasSome = true;
+      totals.ptd.budget = (totals.ptd.budget ?? 0) + (row.ptd.budget ?? 0);
+      totals.ptd.actual = (totals.ptd.actual ?? 0) + (row.ptd.actual ?? 0);
+      totals.ptd.py = (totals.ptd.py ?? 0) + (row.ptd.py ?? 0);
+      totals.ytd.budget = (totals.ytd.budget ?? 0) + (row.ytd.budget ?? 0);
+      totals.ytd.actual = (totals.ytd.actual ?? 0) + (row.ytd.actual ?? 0);
+      totals.ytd.py = (totals.ytd.py ?? 0) + (row.ytd.py ?? 0);
+    }
+  }
+
+  return hasSome ? totals : null;
+}
+
+// ─── Period Extraction ────────────────────────────────────────────────────────
 
 /** Extract period from PDF text header */
 export function extractPeriodFromText(text: string): { year: number; month: number; period: string } | null {
@@ -58,7 +509,7 @@ export function extractPeriodFromText(text: string): { year: number; month: numb
     const period = `${year}-${String(month).padStart(2, "0")}-01`;
     return { year, month, period };
   }
-  
+
   // Fallback: look for filename pattern MM-YYYY
   const fnMatch = text.match(/(\d{2})-(\d{4})/);
   if (fnMatch) {
@@ -67,18 +518,20 @@ export function extractPeriodFromText(text: string): { year: number; month: numb
     const period = `${year}-${String(month).padStart(2, "0")}-01`;
     return { year, month, period };
   }
-  
+
   return null;
 }
 
+// ─── Main Parser ──────────────────────────────────────────────────────────────
+
 /** Main parser: takes raw PDF text, returns MonthlyPeriod data */
 export function parseMcKibbonPDF(text: string, filename?: string): Partial<MonthlyPeriod> {
-  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-  
+  const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+
   // Extract period
   const fullText = filename ? text + "\n" + filename : text;
   const periodInfo = extractPeriodFromText(fullText);
-  
+
   const result: Partial<MonthlyPeriod> = {
     period: periodInfo?.period,
     year: periodInfo?.year,
@@ -86,232 +539,174 @@ export function parseMcKibbonPDF(text: string, filename?: string): Partial<Month
     source_file: filename ?? null,
   };
 
-  // Parse key metrics by searching for label patterns
-  const findValue = (labelPattern: RegExp, lines: string[]): ParsedRow | null => {
-    for (const line of lines) {
-      if (labelPattern.test(line)) {
-        // Extract numbers from the line
-        const nums = line.match(/[-$()0-9,.]+%?/g) || [];
-        if (nums.length >= 3) {
-          return {
-            label: line,
-            ptdBudget: parseNumber(nums[0]),
-            ptdBudgetPct: nums.length > 1 ? parseNumber(nums[1]) : null,
-            ptdActual: parseNumber(nums[nums.length >= 9 ? 3 : (nums.length >= 6 ? 3 : 1)]),
-            ptdActualPct: nums.length > 4 ? parseNumber(nums[4]) : null,
-            ptdLY: parseNumber(nums[nums.length >= 9 ? 6 : (nums.length >= 6 ? 5 : 2)]),
-            ptdLYPct: null,
-            ytdBudget: nums.length > 9 ? parseNumber(nums[9]) : null,
-            ytdActual: nums.length > 12 ? parseNumber(nums[12]) : null,
-            ytdLY: nums.length > 15 ? parseNumber(nums[15]) : null,
-          };
-        }
-      }
-    }
-    return null;
-  };
+  // ── Stats Section ──────────────────────────────────────────────────────────
+  const stats = parseStatsSection(lines);
 
-  // Helper for structured table parsing
-  // The PDF text typically has numbers separated by whitespace 
-  // Format: BudgetVal BudgetPct BudgetPOR ActualVal ActualPct ActualPOR LYVal LYPct LYPOR Label YTDBud YTDBudPct YTDBudPOR YTDActual YTDActPct YTDActPOR YTDLY YTDLYPct YTDLYPOR
-
-  const parseRow = (label: string): {
-    ptdBudget: number | null;
-    ptdActual: number | null;
-    ptdLY: number | null;
-    ptdActualPct: number | null;
-    ptdBudgetPct: number | null;
-    ytdBudget: number | null;
-    ytdActual: number | null;
-  } | null => {
-    // Find line containing the label
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(label)) {
-        const line = lines[i];
-        // Split by multiple spaces or tabs to get columns
-        const parts = line.split(/\s{2,}/).map(s => s.trim()).filter(Boolean);
-        
-        if (parts.length >= 3) {
-          // Try to identify which parts are numbers vs labels
-          const numParts: (number | null)[] = [];
-          for (const p of parts) {
-            const n = parseNumber(p);
-            numParts.push(n);
-          }
-          
-          // Find the label position and extract values around it
-          const labelIdx = parts.findIndex(p => p.includes(label));
-          
-          if (labelIdx >= 0) {
-            // Numbers before label are PTD (budget, %, POR, actual, %, POR, LY, %, POR)
-            const before = numParts.slice(0, labelIdx).filter(n => n !== null) as number[];
-            const after = numParts.slice(labelIdx + 1).filter(n => n !== null) as number[];
-            
-            return {
-              ptdBudget: before[0] ?? null,
-              ptdActual: before.length >= 4 ? before[3] : (before[1] ?? null),
-              ptdLY: before.length >= 7 ? before[6] : (before[2] ?? null),
-              ptdActualPct: before.length >= 5 ? before[4] : null,
-              ptdBudgetPct: before.length >= 2 ? before[1] : null,
-              ytdBudget: after[0] ?? null,
-              ytdActual: after.length >= 4 ? after[3] : (after[1] ?? null),
-            };
-          }
-        }
-      }
-    }
-    return null;
-  };
-
-  // Operating Stats
-  const occupancy = parseRow("Occupancy");
-  if (occupancy) {
-    result.occupancy_pct = pctToDecimal(occupancy.ptdActual);
-    result.occupancy_pct_budget = pctToDecimal(occupancy.ptdBudget);
-    result.occupancy_pct_py = pctToDecimal(occupancy.ptdLY);
+  if (stats.occupancy) {
+    result.occupancy_pct = pctToDecimal(stats.occupancy.actual);
+    result.occupancy_pct_budget = pctToDecimal(stats.occupancy.budget);
+    result.occupancy_pct_py = pctToDecimal(stats.occupancy.py);
   }
 
-  const adr = parseRow("Average Daily Rate");
-  if (adr) {
-    result.adr = toCents(adr.ptdActual);
-    result.adr_budget = toCents(adr.ptdBudget);
-    result.adr_py = toCents(adr.ptdLY);
+  if (stats.adr) {
+    result.adr = toCents(stats.adr.actual);
+    result.adr_budget = toCents(stats.adr.budget);
+    result.adr_py = toCents(stats.adr.py);
   }
 
-  const revpar = parseRow("Revenue per Avl Room");
-  if (revpar) {
-    result.revpar = toCents(revpar.ptdActual);
-    result.revpar_budget = toCents(revpar.ptdBudget);
-    result.revpar_py = toCents(revpar.ptdLY);
+  if (stats.revpar) {
+    result.revpar = toCents(stats.revpar.actual);
+    result.revpar_budget = toCents(stats.revpar.budget);
+    result.revpar_py = toCents(stats.revpar.py);
   }
 
-  const roomsOcc = parseRow("Rooms Occupied");
-  if (roomsOcc) result.rooms_sold = roomsOcc.ptdActual ? Math.round(roomsOcc.ptdActual) : null;
+  if (stats.roomsSold) {
+    result.rooms_sold = stats.roomsSold.actual ? Math.round(stats.roomsSold.actual) : null;
+  }
 
-  const roomsAvail = parseRow("Rooms Available");
-  if (roomsAvail) result.rooms_available = roomsAvail.ptdActual ? Math.round(roomsAvail.ptdActual) : null;
+  if (stats.roomsAvailable) {
+    result.rooms_available = stats.roomsAvailable.actual ? Math.round(stats.roomsAvailable.actual) : null;
+  }
 
-  // Revenue
-  const roomSales = parseRow("Room Sales");
+  // ── Revenue ────────────────────────────────────────────────────────────────
+
+  const roomSales = findFinancialRow(lines, "Room Sales");
   if (roomSales) {
-    result.room_revenue = toCents(roomSales.ptdActual);
-    result.room_revenue_budget = toCents(roomSales.ptdBudget);
-    result.room_revenue_py = toCents(roomSales.ptdLY);
-    result.room_revenue_ytd = toCents(roomSales.ytdActual);
+    result.room_revenue = toCents(roomSales.ptd.actual);
+    result.room_revenue_budget = toCents(roomSales.ptd.budget);
+    result.room_revenue_py = toCents(roomSales.ptd.py);
+    result.room_revenue_ytd = toCents(roomSales.ytd.actual);
   }
 
   // F&B = Restaurant + Lounge
-  const restaurant = parseRow("Restaurant Sales");
-  const lounge = parseRow("Lounge Sales");
-  const fbRev = (restaurant?.ptdActual ?? 0) + (lounge?.ptdActual ?? 0);
-  const fbRevBudget = (restaurant?.ptdBudget ?? 0) + (lounge?.ptdBudget ?? 0);
-  const fbRevPY = (restaurant?.ptdLY ?? 0) + (lounge?.ptdLY ?? 0);
+  const restaurant = findFinancialRow(lines, "Restaurant Sales");
+  const lounge = findFinancialRow(lines, "Lounge Sales");
+  const fbRev = (restaurant?.ptd.actual ?? 0) + (lounge?.ptd.actual ?? 0);
+  const fbRevBudget = (restaurant?.ptd.budget ?? 0) + (lounge?.ptd.budget ?? 0);
+  const fbRevPY = (restaurant?.ptd.py ?? 0) + (lounge?.ptd.py ?? 0);
   result.fb_revenue = toCents(fbRev || null);
   result.fb_revenue_budget = toCents(fbRevBudget || null);
   result.fb_revenue_py = toCents(fbRevPY || null);
 
   // Other operated revenue
-  const guestComm = parseRow("Guest Communications");
-  result.other_operated_revenue = toCents(guestComm?.ptdActual ?? null);
+  const guestComm = findFinancialRow(lines, "Guest Communications");
+  result.other_operated_revenue = toCents(guestComm?.ptd.actual ?? null);
 
   // Other/Misc income
-  const otherIncome = parseRow("Other Income");
-  result.misc_income = toCents(otherIncome?.ptdActual ?? null);
+  const otherIncome = findFinancialRow(lines, "Other Income");
+  result.misc_income = toCents(otherIncome?.ptd.actual ?? null);
 
-  // Total revenue
-  const totalSales = parseRow("Total Sales");
+  // Total Revenue — use exact label matching to avoid "Total Sales Dept. Exp." etc.
+  const totalSales = findFinancialRow(lines, "Total Sales");
   if (totalSales) {
-    result.total_revenue = toCents(totalSales.ptdActual);
-    result.total_revenue_budget = toCents(totalSales.ptdBudget);
-    result.total_revenue_py = toCents(totalSales.ptdLY);
-    result.total_revenue_ytd = toCents(totalSales.ytdActual);
-    result.total_revenue_ytd_budget = toCents(totalSales.ytdBudget);
+    result.total_revenue = toCents(totalSales.ptd.actual);
+    result.total_revenue_budget = toCents(totalSales.ptd.budget);
+    result.total_revenue_py = toCents(totalSales.ptd.py);
+    result.total_revenue_ytd = toCents(totalSales.ytd.actual);
+    result.total_revenue_ytd_budget = toCents(totalSales.ytd.budget);
   }
 
-  // Departmental Expenses
-  const roomExp = parseRow("Room Expense");
+  // ── Departmental Expenses ──────────────────────────────────────────────────
+
+  const roomExp = findFinancialRow(lines, "Room Expense");
   if (roomExp) {
-    result.rooms_expense = toCents(roomExp.ptdActual);
-    result.rooms_expense_budget = toCents(roomExp.ptdBudget);
+    result.rooms_expense = toCents(roomExp.ptd.actual);
+    result.rooms_expense_budget = toCents(roomExp.ptd.budget);
   }
 
-  const restExp = parseRow("Restaurant Expense");
-  const loungeExp = parseRow("Lounge Expense");
-  const fbExp = (restExp?.ptdActual ?? 0) + (loungeExp?.ptdActual ?? 0);
-  const fbExpBudget = (restExp?.ptdBudget ?? 0) + (loungeExp?.ptdBudget ?? 0);
+  const restExp = findFinancialRow(lines, "Restaurant Expense");
+  const loungeExp = findFinancialRow(lines, "Lounge Expense");
+  const fbExp = (restExp?.ptd.actual ?? 0) + (loungeExp?.ptd.actual ?? 0);
+  const fbExpBudget = (restExp?.ptd.budget ?? 0) + (loungeExp?.ptd.budget ?? 0);
   result.fb_expense = toCents(fbExp || null);
   result.fb_expense_budget = toCents(fbExpBudget || null);
 
-  const otherExp = parseRow("Other Expense");
-  result.other_operated_expense = toCents(otherExp?.ptdActual ?? null);
+  const otherExp = findFinancialRow(lines, "Other Expense");
+  result.other_operated_expense = toCents(otherExp?.ptd.actual ?? null);
 
-  // Undistributed
-  const adminGen = parseRow("Admin & General");
+  // ── Undistributed Expenses ─────────────────────────────────────────────────
+
+  const adminGen = findFinancialRow(lines, "Admin & General");
   if (adminGen) {
-    result.admin_general = toCents(adminGen.ptdActual);
-    result.admin_general_budget = toCents(adminGen.ptdBudget);
+    result.admin_general = toCents(adminGen.ptd.actual);
+    result.admin_general_budget = toCents(adminGen.ptd.budget);
   }
 
-  const advPromo = parseRow("Adv. & Promotion");
+  const advPromo = findFinancialRow(lines, "Adv. & Promotion");
   if (advPromo) {
-    result.sales_marketing = toCents(advPromo.ptdActual);
-    result.sales_marketing_budget = toCents(advPromo.ptdBudget);
+    result.sales_marketing = toCents(advPromo.ptd.actual);
+    result.sales_marketing_budget = toCents(advPromo.ptd.budget);
   }
 
-  const infoTel = parseRow("Info and Telecom");
-  if (infoTel) result.it_telecom = toCents(infoTel.ptdActual);
+  const infoTel = findFinancialRow(lines, "Info and Telecom");
+  if (infoTel) result.it_telecom = toCents(infoTel.ptd.actual);
 
-  const util = parseRow("Utilities");
+  const util = findFinancialRow(lines, "Utilities");
   if (util) {
-    result.utilities = toCents(util.ptdActual);
-    result.utilities_budget = toCents(util.ptdBudget);
+    result.utilities = toCents(util.ptd.actual);
+    result.utilities_budget = toCents(util.ptd.budget);
   }
 
-  const maint = parseRow("Maintenance & Repair");
+  const maint = findFinancialRow(lines, "Maintenance & Repair");
   if (maint) {
-    result.property_ops_maintenance = toCents(maint.ptdActual);
-    result.property_ops_maintenance_budget = toCents(maint.ptdBudget);
+    result.property_ops_maintenance = toCents(maint.ptd.actual);
+    result.property_ops_maintenance_budget = toCents(maint.ptd.budget);
   }
 
-  // GOP
-  const gop = parseRow("G O P");
+  // ── GOP ────────────────────────────────────────────────────────────────────
+
+  const gop = findFinancialRow(lines, "G O P");
   if (gop) {
-    result.gross_operating_profit = toCents(gop.ptdActual);
-    result.gop_budget = toCents(gop.ptdBudget);
-    result.gop_py = toCents(gop.ptdLY);
-    result.gop_ytd = toCents(gop.ytdActual);
-    result.gop_ytd_budget = toCents(gop.ytdBudget);
-    result.gop_pct = gop.ptdActualPct ? pctToDecimal(gop.ptdActualPct) : null;
-    result.gop_pct_budget = gop.ptdBudgetPct ? pctToDecimal(gop.ptdBudgetPct) : null;
+    result.gross_operating_profit = toCents(gop.ptd.actual);
+    result.gop_budget = toCents(gop.ptd.budget);
+    result.gop_py = toCents(gop.ptd.py);
+    result.gop_ytd = toCents(gop.ytd.actual);
+    result.gop_ytd_budget = toCents(gop.ytd.budget);
+    result.gop_pct = gop.ptd.actualPct ? pctToDecimal(gop.ptd.actualPct) : null;
+    result.gop_pct_budget = gop.ptd.budgetPct ? pctToDecimal(gop.ptd.budgetPct) : null;
   }
 
-  // Fixed charges
-  const mgmtFee = parseRow("MANAGEMENT FEE");
-  if (mgmtFee) result.management_fees = toCents(mgmtFee.ptdActual);
+  // ── Fixed Charges ──────────────────────────────────────────────────────────
 
-  const propTax = parseRow("PROPERTY TAX");
-  if (propTax) result.property_taxes = toCents(propTax.ptdActual);
+  const mgmtFee = findFinancialRow(lines, "MANAGEMENT FEE");
+  if (mgmtFee) result.management_fees = toCents(mgmtFee.ptd.actual);
 
-  const insurance = parseRow("INSURANCE");
-  if (insurance) result.insurance = toCents(insurance.ptdActual);
+  const propTax = findFinancialRow(lines, "REAL ESTATE TAXES");
+  if (propTax) result.property_taxes = toCents(propTax.ptd.actual);
 
-  const reserve = parseRow("RESERVE FUND");
-  if (reserve) result.reserve_for_replacement = toCents(reserve.ptdActual);
+  // Insurance: sum 4 separate lines
+  const insurance = sumFinancialRows(lines, [
+    "PROPERTY INSURANCE",
+    "INSURANCE -GENERAL",
+    "INSURANCE -EPLI",
+    "INSURANCE -CYBER",
+  ]);
+  if (insurance) result.insurance = toCents(insurance.ptd.actual);
 
-  // NOP
-  // Look for various NOP labels
-  let nop = parseRow("NET OPERATING PROFIT") || parseRow("N O P") || parseRow("NOP");
+  const reserve = findFinancialRow(lines, "RESERVE FUND");
+  if (reserve) result.reserve_for_replacement = toCents(reserve.ptd.actual);
+
+  // ── NOP ────────────────────────────────────────────────────────────────────
+
+  // Try multiple label variants. The PDF uses "N O P Hotel" for the final NOP line
+  const nop =
+    findFinancialRow(lines, "N O P Hotel") ||
+    findFinancialRow(lines, "Net Operating Profit") ||
+    findFinancialRow(lines, "NET OPERATING PROFIT") ||
+    findFinancialRow(lines, "N O P") ||
+    findFinancialRow(lines, "NOP");
+
   if (nop) {
-    result.nop_hotel = toCents(nop.ptdActual);
-    result.nop_hotel_budget = toCents(nop.ptdBudget);
-    result.nop_hotel_py = toCents(nop.ptdLY);
-    result.nop_hotel_ytd = toCents(nop.ytdActual);
-    result.nop_hotel_ytd_budget = toCents(nop.ytdBudget);
-    result.nop_pct = nop.ptdActualPct ? pctToDecimal(nop.ptdActualPct) : null;
-    result.nop_pct_budget = nop.ptdBudgetPct ? pctToDecimal(nop.ptdBudgetPct) : null;
+    result.nop_hotel = toCents(nop.ptd.actual);
+    result.nop_hotel_budget = toCents(nop.ptd.budget);
+    result.nop_hotel_py = toCents(nop.ptd.py);
+    result.nop_hotel_ytd = toCents(nop.ytd.actual);
+    result.nop_hotel_ytd_budget = toCents(nop.ytd.budget);
+    result.nop_pct = nop.ptd.actualPct ? pctToDecimal(nop.ptd.actualPct) : null;
+    result.nop_pct_budget = nop.ptd.budgetPct ? pctToDecimal(nop.ptd.budgetPct) : null;
   }
 
-  // Calculate NOP% if we have the values
+  // Calculate NOP% if we have the values but not from direct extraction
   if (result.nop_hotel && result.total_revenue && !result.nop_pct) {
     result.nop_pct = result.nop_hotel / result.total_revenue;
   }
