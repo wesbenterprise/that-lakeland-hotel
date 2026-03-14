@@ -1,0 +1,64 @@
+{
+  "_comment": "Maps McKibbon Income Statement PDF row labels to database fields. Values are extracted by matching these labels in the parsed PDF text. Column indexes: 0=PTD Budget, 3=PTD Actual, 6=PTD Last Year, 9=Item Label, 10=YTD Budget, 13=YTD Actual, 16=YTD Last Year",
+  "operating_stats": {
+    "Occupancy": { "field": "occupancy_pct", "type": "pct", "budget_field": "occupancy_pct_budget", "py_field": "occupancy_pct_py" },
+    "Average Daily Rate": { "field": "adr", "type": "rate", "budget_field": "adr_budget", "py_field": "adr_py" },
+    "Revenue per Avl Room": { "field": "revpar", "type": "rate", "budget_field": "revpar_budget", "py_field": "revpar_py" },
+    "Rooms Occupied": { "field": "rooms_sold", "type": "int" },
+    "Rooms Available": { "field": "rooms_available", "type": "int" }
+  },
+  "revenue": {
+    "Room Sales": { "field": "room_revenue", "type": "dollars", "budget_field": "room_revenue_budget", "py_field": "room_revenue_py", "ytd_field": "room_revenue_ytd" },
+    "Restaurant Sales": { "field": "_fb_restaurant", "type": "dollars", "component": "fb_revenue" },
+    "Lounge Sales": { "field": "_fb_lounge", "type": "dollars", "component": "fb_revenue" },
+    "Guest Communications": { "field": "_other_guest_comm", "type": "dollars", "component": "other_operated_revenue" },
+    "Other Income": { "field": "misc_income", "type": "dollars" },
+    "Total Sales": { "field": "total_revenue", "type": "dollars", "budget_field": "total_revenue_budget", "py_field": "total_revenue_py", "ytd_field": "total_revenue_ytd", "ytd_budget_field": "total_revenue_ytd_budget" }
+  },
+  "dept_expenses": {
+    "Room Expense": { "field": "rooms_expense", "type": "dollars", "budget_field": "rooms_expense_budget" },
+    "Restaurant Expense": { "field": "_fb_rest_exp", "type": "dollars", "component": "fb_expense" },
+    "Lounge Expense": { "field": "_fb_lounge_exp", "type": "dollars", "component": "fb_expense" },
+    "Other Expense": { "field": "other_operated_expense", "type": "dollars" },
+    "Valet Expense": { "field": "_valet_exp", "type": "dollars" }
+  },
+  "undistributed": {
+    "Admin & General": { "field": "admin_general", "type": "dollars", "budget_field": "admin_general_budget" },
+    "Adv. & Promotion": { "field": "sales_marketing", "type": "dollars", "budget_field": "sales_marketing_budget" },
+    "Info and Telecom": { "field": "it_telecom", "type": "dollars" },
+    "Utilities": { "field": "utilities", "type": "dollars", "budget_field": "utilities_budget" },
+    "Maintenance & Repair": { "field": "property_ops_maintenance", "type": "dollars", "budget_field": "property_ops_maintenance_budget" }
+  },
+  "profit_lines": {
+    "G O P": { "field": "gross_operating_profit", "type": "dollars", "budget_field": "gop_budget", "py_field": "gop_py", "ytd_field": "gop_ytd", "ytd_budget_field": "gop_ytd_budget" },
+    "MANAGEMENT FEE": { "field": "management_fees", "type": "dollars" },
+    "PROPERTY TAX": { "field": "property_taxes", "type": "dollars" },
+    "INSURANCE": { "field": "insurance", "type": "dollars" },
+    "RESERVE FUND": { "field": "reserve_for_replacement", "type": "dollars" },
+    "NOP Hotel": { "field": "nop_hotel", "type": "dollars", "budget_field": "nop_hotel_budget", "py_field": "nop_hotel_py", "ytd_field": "nop_hotel_ytd", "ytd_budget_field": "nop_hotel_ytd_budget" }
+  },
+  "pct_lines": {
+    "G O P": { "field": "gop_pct", "budget_field": "gop_pct_budget", "py_field": "gop_pct_py", "ytd_field": "gop_pct_ytd" },
+    "NOP Hotel": { "field": "nop_pct", "budget_field": "nop_pct_budget", "py_field": "nop_pct_py", "ytd_field": "nop_pct_ytd" }
+  },
+  "column_layout": {
+    "ptd_budget_idx": 0,
+    "ptd_budget_pct_idx": 1,
+    "ptd_budget_por_idx": 2,
+    "ptd_actual_idx": 3,
+    "ptd_actual_pct_idx": 4,
+    "ptd_actual_por_idx": 5,
+    "ptd_ly_idx": 6,
+    "ptd_ly_pct_idx": 7,
+    "ptd_ly_por_idx": 8,
+    "ytd_budget_idx": 10,
+    "ytd_budget_pct_idx": 11,
+    "ytd_budget_por_idx": 12,
+    "ytd_actual_idx": 13,
+    "ytd_actual_pct_idx": 14,
+    "ytd_actual_por_idx": 15,
+    "ytd_ly_idx": 16,
+    "ytd_ly_pct_idx": 17,
+    "ytd_ly_por_idx": 18
+  }
+}
