@@ -525,8 +525,42 @@ export function extractPeriodFromText(text: string): { year: number; month: numb
 // ─── Main Parser ──────────────────────────────────────────────────────────────
 
 /** Main parser: takes raw PDF text, returns MonthlyPeriod data */
+/**
+ * Old-format PDF parser (>3000 lines): pdf-parse fragments numbers character-by-character.
+ * Joining all fragments produces the same compact layout as modern PDFs.
+ * We extract a 250-char window around the label and tokenize it.
+ */
+function findFinancialRowOldFormat(collapsed: string, label: string): FinancialRow | null {
+  const idx = collapsed.indexOf(label);
+  if (idx < 0) return null;
+  // Take last 9 tokens immediately before the label (closest = this row's values)
+  const ptdText = collapsed.substring(Math.max(0, idx - 250), idx);
+  const ytdText = collapsed.substring(idx + label.length, Math.min(collapsed.length, idx + label.length + 250));
+  const allPtdTokens = tokenizeNumbers(ptdText);
+  const allYtdTokens = tokenizeNumbers(ytdText);
+  // Use only the LAST 9 pre-label tokens (immediately before the label = this row)
+  const ptdTokens = allPtdTokens.slice(-9);
+  // Use only the FIRST 9 post-label tokens (immediately after = YTD this row)
+  const ytdTokens = allYtdTokens.slice(0, 9);
+  return {
+    ptd: extractValues(ptdTokens),
+    ytd: extractValues(ytdTokens),
+  };
+}
+
 export function parseMcKibbonPDF(text: string, filename?: string): Partial<MonthlyPeriod> {
-  const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  const rawLines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  const isOldFormat = rawLines.length > 3000;
+  const lines = isOldFormat
+    ? [rawLines.join("")]   // collapse fragments into one searchable string
+    : rawLines;
+  const collapsed = isOldFormat ? lines[0] : null;
+
+  // Helper: route to old-format search when needed
+  const findRow = (label: string) =>
+    isOldFormat && collapsed
+      ? findFinancialRowOldFormat(collapsed, label)
+      : findFinancialRow(lines, label);
 
   // Extract period
   const fullText = filename ? text + "\n" + filename : text;
@@ -570,7 +604,7 @@ export function parseMcKibbonPDF(text: string, filename?: string): Partial<Month
 
   // ── Revenue ────────────────────────────────────────────────────────────────
 
-  const roomSales = findFinancialRow(lines, "Room Sales");
+  const roomSales = findRow( "Room Sales");
   if (roomSales) {
     result.room_revenue = toCents(roomSales.ptd.actual);
     result.room_revenue_budget = toCents(roomSales.ptd.budget);
@@ -579,8 +613,8 @@ export function parseMcKibbonPDF(text: string, filename?: string): Partial<Month
   }
 
   // F&B = Restaurant + Lounge
-  const restaurant = findFinancialRow(lines, "Restaurant Sales");
-  const lounge = findFinancialRow(lines, "Lounge Sales");
+  const restaurant = findRow( "Restaurant Sales");
+  const lounge = findRow( "Lounge Sales");
   const fbRev = (restaurant?.ptd.actual ?? 0) + (lounge?.ptd.actual ?? 0);
   const fbRevBudget = (restaurant?.ptd.budget ?? 0) + (lounge?.ptd.budget ?? 0);
   const fbRevPY = (restaurant?.ptd.py ?? 0) + (lounge?.ptd.py ?? 0);
@@ -589,15 +623,15 @@ export function parseMcKibbonPDF(text: string, filename?: string): Partial<Month
   result.fb_revenue_py = toCents(fbRevPY || null);
 
   // Other operated revenue
-  const guestComm = findFinancialRow(lines, "Guest Communications");
+  const guestComm = findRow( "Guest Communications");
   result.other_operated_revenue = toCents(guestComm?.ptd.actual ?? null);
 
   // Other/Misc income
-  const otherIncome = findFinancialRow(lines, "Other Income");
+  const otherIncome = findRow( "Other Income");
   result.misc_income = toCents(otherIncome?.ptd.actual ?? null);
 
   // Total Revenue — use exact label matching to avoid "Total Sales Dept. Exp." etc.
-  const totalSales = findFinancialRow(lines, "Total Sales");
+  const totalSales = findRow( "Total Sales");
   if (totalSales) {
     result.total_revenue = toCents(totalSales.ptd.actual);
     result.total_revenue_budget = toCents(totalSales.ptd.budget);
@@ -608,46 +642,46 @@ export function parseMcKibbonPDF(text: string, filename?: string): Partial<Month
 
   // ── Departmental Expenses ──────────────────────────────────────────────────
 
-  const roomExp = findFinancialRow(lines, "Room Expense");
+  const roomExp = findRow( "Room Expense");
   if (roomExp) {
     result.rooms_expense = toCents(roomExp.ptd.actual);
     result.rooms_expense_budget = toCents(roomExp.ptd.budget);
   }
 
-  const restExp = findFinancialRow(lines, "Restaurant Expense");
-  const loungeExp = findFinancialRow(lines, "Lounge Expense");
+  const restExp = findRow( "Restaurant Expense");
+  const loungeExp = findRow( "Lounge Expense");
   const fbExp = (restExp?.ptd.actual ?? 0) + (loungeExp?.ptd.actual ?? 0);
   const fbExpBudget = (restExp?.ptd.budget ?? 0) + (loungeExp?.ptd.budget ?? 0);
   result.fb_expense = toCents(fbExp || null);
   result.fb_expense_budget = toCents(fbExpBudget || null);
 
-  const otherExp = findFinancialRow(lines, "Other Expense");
+  const otherExp = findRow( "Other Expense");
   result.other_operated_expense = toCents(otherExp?.ptd.actual ?? null);
 
   // ── Undistributed Expenses ─────────────────────────────────────────────────
 
-  const adminGen = findFinancialRow(lines, "Admin & General");
+  const adminGen = findRow( "Admin & General");
   if (adminGen) {
     result.admin_general = toCents(adminGen.ptd.actual);
     result.admin_general_budget = toCents(adminGen.ptd.budget);
   }
 
-  const advPromo = findFinancialRow(lines, "Adv. & Promotion");
+  const advPromo = findRow( "Adv. & Promotion");
   if (advPromo) {
     result.sales_marketing = toCents(advPromo.ptd.actual);
     result.sales_marketing_budget = toCents(advPromo.ptd.budget);
   }
 
-  const infoTel = findFinancialRow(lines, "Info and Telecom");
+  const infoTel = findRow( "Info and Telecom");
   if (infoTel) result.it_telecom = toCents(infoTel.ptd.actual);
 
-  const util = findFinancialRow(lines, "Utilities");
+  const util = findRow( "Utilities");
   if (util) {
     result.utilities = toCents(util.ptd.actual);
     result.utilities_budget = toCents(util.ptd.budget);
   }
 
-  const maint = findFinancialRow(lines, "Maintenance & Repair");
+  const maint = findRow( "Maintenance & Repair");
   if (maint) {
     result.property_ops_maintenance = toCents(maint.ptd.actual);
     result.property_ops_maintenance_budget = toCents(maint.ptd.budget);
@@ -655,7 +689,7 @@ export function parseMcKibbonPDF(text: string, filename?: string): Partial<Month
 
   // ── GOP ────────────────────────────────────────────────────────────────────
 
-  const gop = findFinancialRow(lines, "G O P");
+  const gop = findRow( "G O P");
   if (gop) {
     result.gross_operating_profit = toCents(gop.ptd.actual);
     result.gop_budget = toCents(gop.ptd.budget);
@@ -668,10 +702,10 @@ export function parseMcKibbonPDF(text: string, filename?: string): Partial<Month
 
   // ── Fixed Charges ──────────────────────────────────────────────────────────
 
-  const mgmtFee = findFinancialRow(lines, "MANAGEMENT FEE");
+  const mgmtFee = findRow( "MANAGEMENT FEE");
   if (mgmtFee) result.management_fees = toCents(mgmtFee.ptd.actual);
 
-  const propTax = findFinancialRow(lines, "REAL ESTATE TAXES");
+  const propTax = findRow( "REAL ESTATE TAXES");
   if (propTax) result.property_taxes = toCents(propTax.ptd.actual);
 
   // Insurance: sum 4 separate lines
@@ -683,18 +717,18 @@ export function parseMcKibbonPDF(text: string, filename?: string): Partial<Month
   ]);
   if (insurance) result.insurance = toCents(insurance.ptd.actual);
 
-  const reserve = findFinancialRow(lines, "RESERVE FUND");
+  const reserve = findRow( "RESERVE FUND");
   if (reserve) result.reserve_for_replacement = toCents(reserve.ptd.actual);
 
   // ── NOP ────────────────────────────────────────────────────────────────────
 
   // Try multiple label variants. The PDF uses "N O P Hotel" for the final NOP line
   const nop =
-    findFinancialRow(lines, "N O P Hotel") ||
-    findFinancialRow(lines, "Net Operating Profit") ||
-    findFinancialRow(lines, "NET OPERATING PROFIT") ||
-    findFinancialRow(lines, "N O P") ||
-    findFinancialRow(lines, "NOP");
+    findRow( "N O P Hotel") ||
+    findRow( "Net Operating Profit") ||
+    findRow( "NET OPERATING PROFIT") ||
+    findRow( "N O P") ||
+    findRow( "NOP");
 
   if (nop) {
     result.nop_hotel = toCents(nop.ptd.actual);
