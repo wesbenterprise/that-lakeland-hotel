@@ -15,12 +15,14 @@ import {
   Building2,
   Menu,
   X,
+  Calendar,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Overview", icon: BarChart3 },
   { href: "/trends", label: "Trends", icon: TrendingUp },
   { href: "/month", label: "Month Detail", icon: FileText },
+  { href: "/yearly", label: "Yearly", icon: Calendar },
   { divider: true },
   { href: "/upload", label: "Upload", icon: Upload },
 ] as const;
