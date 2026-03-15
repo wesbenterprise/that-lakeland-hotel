@@ -9,6 +9,7 @@ import {
 import { useMonthlyData } from "@/lib/hooks";
 import { MonthlyPeriod } from "@/lib/types";
 import { monthName, formatCurrency, formatPct } from "@/lib/utils";
+import { RevPar5Yr } from "@/components/revpar-5yr";
 
 type MetricKey = keyof typeof METRICS;
 
@@ -127,6 +128,12 @@ function TrendsContent() {
   return (
     <div className="space-y-6 max-w-7xl">
       <h1 className="text-2xl font-bold">Trend Charts</h1>
+
+      {/* RevPAR 5-Year Comparison — hero chart */}
+      <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
+        <h3 className="text-sm font-semibold text-slate-200 mb-4">RevPAR — 5-Year Comparison</h3>
+        <RevPar5Yr yearCount={5} heightClass="h-72 lg:h-80" />
+      </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Metric selector */}

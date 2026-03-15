@@ -5,6 +5,7 @@ import { useMonthlyData } from "@/lib/hooks";
 import { KPICard } from "@/components/kpi-card";
 import { RevenueChart } from "@/components/revenue-chart";
 import { RevPARTrend } from "@/components/revpar-trend";
+import { RevPar5Yr } from "@/components/revpar-5yr";
 import { SummaryTable } from "@/components/summary-table";
 import { PeriodSelector } from "@/components/period-selector";
 import { formatCurrency, formatPct, fullMonthName } from "@/lib/utils";
@@ -126,6 +127,12 @@ export default function OverviewPage() {
           sparkData={trailing12.map(d => (d.nop_hotel ?? 0) / 100)}
           href="/trends?metric=nop"
         />
+      </div>
+
+      {/* RevPAR Trend — 3-year sparkline, full width */}
+      <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
+        <h3 className="text-sm font-semibold text-slate-200 mb-4">RevPAR Trend</h3>
+        <RevPar5Yr yearCount={3} heightClass="h-52 lg:h-60" />
       </div>
 
       {/* Charts Row */}
