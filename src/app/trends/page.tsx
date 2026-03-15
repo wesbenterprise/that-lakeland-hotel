@@ -180,7 +180,8 @@ function TrendsContent() {
             </label>
           </div>
 
-          <ResponsiveContainer width="100%" height={400}>
+          <div className="w-full h-64 lg:h-[400px]">
+          <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} angle={-45} textAnchor="end" height={60} />
@@ -242,6 +243,7 @@ function TrendsContent() {
               )}
             </LineChart>
           </ResponsiveContainer>
+          </div>
         </div>
       </div>
     </div>

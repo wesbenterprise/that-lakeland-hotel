@@ -22,7 +22,8 @@ export function RevenueChart({ period }: { period: MonthlyPeriod }) {
   ];
 
   return (
-    <ResponsiveContainer width="100%" height={250}>
+    <div className="w-full h-64 lg:h-72">
+    <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} barGap={4}>
         <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
         <YAxis
@@ -46,5 +47,6 @@ export function RevenueChart({ period }: { period: MonthlyPeriod }) {
         <Bar dataKey="budget" fill="#334155" name="Budget" radius={[4, 4, 0, 0]} strokeDasharray="4 4" stroke="#64748b" />
       </BarChart>
     </ResponsiveContainer>
+    </div>
   );
 }

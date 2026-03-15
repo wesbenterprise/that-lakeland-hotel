@@ -12,7 +12,8 @@ export function RevPARTrend({ data }: { data: MonthlyPeriod[] }) {
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={250}>
+    <div className="w-full h-64 lg:h-72">
+    <ResponsiveContainer width="100%" height="100%">
       <LineChart data={chartData}>
         <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} angle={-45} textAnchor="end" height={50} />
         <YAxis stroke="#94a3b8" fontSize={11} tickFormatter={(v) => `$${v}`} />
@@ -30,5 +31,6 @@ export function RevPARTrend({ data }: { data: MonthlyPeriod[] }) {
         <Line type="monotone" dataKey="budget" stroke="#64748b" strokeWidth={1} strokeDasharray="4 4" dot={false} name="Budget" />
       </LineChart>
     </ResponsiveContainer>
+    </div>
   );
 }
