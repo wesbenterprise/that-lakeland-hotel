@@ -32,6 +32,7 @@ export function RevenueChart({ period }: { period: MonthlyPeriod }) {
           tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`}
         />
         <Tooltip
+            cursor={{ fill: "rgba(255,255,255,0.06)" }}
           contentStyle={{
             backgroundColor: "#1e293b",
             border: "1px solid #334155",

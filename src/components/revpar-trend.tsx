@@ -18,6 +18,7 @@ export function RevPARTrend({ data }: { data: MonthlyPeriod[] }) {
         <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} angle={-45} textAnchor="end" height={50} />
         <YAxis stroke="#94a3b8" fontSize={11} tickFormatter={(v) => `$${v}`} />
         <Tooltip
+            cursor={{ fill: "rgba(255,255,255,0.06)" }}
           contentStyle={{
             backgroundColor: "#1e293b",
             border: "1px solid #334155",

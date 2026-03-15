@@ -203,6 +203,7 @@ function TrendsContent() {
                 }}
               />
               <Tooltip
+            cursor={{ fill: "rgba(255,255,255,0.06)" }}
                 contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px", color: "#e2e8f0" }}
               />
               <Legend wrapperStyle={{ color: "#94a3b8", fontSize: 12 }} />

@@ -99,6 +99,7 @@ export function RevPar5Yr({ yearCount = 5, heightClass = "h-72 lg:h-80" }: Props
             width={52}
           />
           <Tooltip
+            cursor={{ fill: "rgba(255,255,255,0.06)" }}
             contentStyle={{
               backgroundColor: "#1e293b",
               border: "1px solid #334155",
