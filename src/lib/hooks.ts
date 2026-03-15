@@ -140,24 +140,21 @@ export function useMonthlyData() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isDemoMode) {
-      setData(DEMO_DATA);
-      setLoading(false);
-      return;
-    }
-
     const fetchData = async () => {
       try {
-        const { data: periods, error } = await supabase
-          .from("monthly_periods")
-          .select("*")
-          .order("period", { ascending: true });
+        // Always fetch via API route (uses service role key, bypasses RLS)
+        const res = await fetch("/api/periods");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
 
-        if (error) throw error;
-        setData(periods || []);
+        if (json.demo || !json.data || json.data.length === 0) {
+          // No live data — use demo
+          setData(DEMO_DATA);
+        } else {
+          setData(json.data);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch data");
-        // Fall back to demo data
         setData(DEMO_DATA);
       } finally {
         setLoading(false);
