@@ -78,6 +78,56 @@ export interface MonthlyPeriod {
   updated_at?: string;
 }
 
+// ─── Distributions ───
+
+export interface Distribution {
+  id?: string;
+  distribution_date: string;      // ISO date string, e.g., "2022-04-01"
+  total_amount: number;            // cents
+  barnett_pct: number;             // decimal, e.g., 0.65
+  costa_pct: number;
+  lee_pct: number;
+  loute_pct: number;
+  barnett_amount: number;          // cents
+  costa_amount: number;
+  lee_amount: number;
+  loute_amount: number;
+  notes: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface InvestorProfile {
+  key: 'barnett' | 'costa' | 'lee' | 'loute';
+  name: string;
+  invested_capital: number;         // cents
+  debt_reduction: number;           // cents
+  current_pct: number;              // decimal, e.g., 0.65
+}
+
+export interface CalculatorInputs {
+  cash_in_bank: number;            // dollars (UI input, not cents)
+  operating_buffer: number;        // dollars, default $150,000
+  reserve_balance: number;         // dollars
+  restricted_funds: number;        // dollars
+  future_reserves: number;         // dollars
+}
+
+export interface CalculatorResult {
+  minimum_needed: number;          // dollars
+  to_distribute_raw: number;       // dollars (before rounding)
+  to_distribute_rounded: number;   // dollars (rounded down to nearest $30k)
+  remaining_in_bank: number;       // dollars
+  buffer: number;                  // dollars
+  per_investor: {
+    key: string;
+    name: string;
+    pct: number;
+    amount: number;                // dollars
+    yield_pct: number;             // decimal, e.g., 0.0312 = 3.12%
+  }[];
+}
+
 export interface UploadLog {
   id?: string;
   filename: string;

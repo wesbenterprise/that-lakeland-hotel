@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase, isDemoMode } from "./supabase";
-import { MonthlyPeriod } from "./types";
+import { MonthlyPeriod, Distribution } from "./types";
 import { relativeTime } from "./utils";
 
 // Demo data for when Supabase isn't connected
@@ -171,6 +171,45 @@ export function useLatestPeriod() {
   const { data, loading, error } = useMonthlyData();
   const latest = data.length > 0 ? data[data.length - 1] : null;
   return { latest, allPeriods: data, loading, error };
+}
+
+// Demo distributions data
+const DEMO_DISTRIBUTIONS: Distribution[] = [
+  { distribution_date: '2022-04-01', total_amount: 45000000, barnett_pct: 0.68, costa_pct: 0.28, lee_pct: 0.02, loute_pct: 0.02, barnett_amount: 30600000, costa_amount: 12600000, lee_amount: 900000, loute_amount: 900000, notes: 'Q2 2022 distribution (original ownership split)' },
+  { distribution_date: '2022-10-01', total_amount: 45000000, barnett_pct: 0.68, costa_pct: 0.28, lee_pct: 0.02, loute_pct: 0.02, barnett_amount: 30600000, costa_amount: 12600000, lee_amount: 900000, loute_amount: 900000, notes: 'Q4 2022 distribution (original ownership split)' },
+  { distribution_date: '2023-06-01', total_amount: 108000000, barnett_pct: 0.65, costa_pct: 0.27, lee_pct: 0.06, loute_pct: 0.02, barnett_amount: 70200000, costa_amount: 29160000, lee_amount: 6480000, loute_amount: 2160000, notes: 'Q2 2023 distribution (revised ownership)' },
+  { distribution_date: '2023-10-01', total_amount: 54000000, barnett_pct: 0.65, costa_pct: 0.27, lee_pct: 0.06, loute_pct: 0.02, barnett_amount: 35100000, costa_amount: 14580000, lee_amount: 3240000, loute_amount: 1080000, notes: 'Q4 2023 distribution' },
+  { distribution_date: '2024-04-01', total_amount: 90000000, barnett_pct: 0.65, costa_pct: 0.27, lee_pct: 0.06, loute_pct: 0.02, barnett_amount: 58500000, costa_amount: 24300000, lee_amount: 5400000, loute_amount: 1800000, notes: 'Q2 2024 distribution' },
+  { distribution_date: '2024-12-01', total_amount: 51000000, barnett_pct: 0.65, costa_pct: 0.27, lee_pct: 0.06, loute_pct: 0.02, barnett_amount: 33150000, costa_amount: 13770000, lee_amount: 3060000, loute_amount: 1220000, notes: 'Q4 2024 distribution' },
+  { distribution_date: '2025-05-01', total_amount: 120000000, barnett_pct: 0.65, costa_pct: 0.27, lee_pct: 0.06, loute_pct: 0.02, barnett_amount: 78000000, costa_amount: 32400000, lee_amount: 7200000, loute_amount: 2400000, notes: 'Q2 2025 distribution' },
+];
+
+export function useDistributions() {
+  const [data, setData] = useState<Distribution[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await fetch('/api/distributions');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (json.data && json.data.length > 0) {
+          setData(json.data);
+        } else {
+          setData(DEMO_DISTRIBUTIONS);
+        }
+      } catch {
+        setData(DEMO_DISTRIBUTIONS);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  return { data, loading, error };
 }
 
 export function useLastUpdated(): string | null {
