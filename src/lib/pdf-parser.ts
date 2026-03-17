@@ -220,6 +220,25 @@ interface StatsResult {
   roomsAvailableYtd: ParsedValues;
 }
 
+/**
+ * Extract Budget, Actual, PY from stats tokens.
+ * Stats lines can be 6-column (Budget, BudgetPOR, Actual, ActualPOR, PY, PYPOR)
+ * or 9-column (Budget, Budget%, BudgetPOR, Actual, Actual%, ActualPOR, PY, PY%, PYPOR).
+ */
+function extractStatsValues(tokens: string[]): ParsedValues {
+  const nums = tokens.map(t => parseNumber(t));
+  if (tokens.length >= 9) {
+    // 9-column: indices 0, 3, 6
+    return { budget: nums[0] ?? null, budgetPct: null, actual: nums[3] ?? null, actualPct: null, py: nums[6] ?? null, pyPct: null };
+  } else if (tokens.length >= 6) {
+    // 6-column: indices 0, 2, 4
+    return { budget: nums[0] ?? null, budgetPct: null, actual: nums[2] ?? null, actualPct: null, py: nums[4] ?? null, pyPct: null };
+  } else if (tokens.length >= 3) {
+    return { budget: nums[0] ?? null, budgetPct: null, actual: nums[1] ?? null, actualPct: null, py: nums[2] ?? null, pyPct: null };
+  }
+  return { budget: null, budgetPct: null, actual: nums[0] ?? null, actualPct: null, py: null, pyPct: null };
+}
+
 function parseStatsSection(lines: string[]): Partial<StatsResult> {
   const result: Partial<StatsResult> = {};
 
@@ -231,27 +250,8 @@ function parseStatsSection(lines: string[]): Partial<StatsResult> {
       const ytdLine = i < lines.length - 1 ? lines[i + 1].trim() : "";
       const ptdTokens = tokenizeNumbers(ptdLine);
       const ytdTokens = tokenizeNumbers(ytdLine);
-      // Occupancy tokens are percentages: [Budget%, BudgetPOR%, Actual%, ActualPOR%, PY%, PYPOR%]
-      if (ptdTokens.length >= 6) {
-        result.occupancy = {
-          budget: parseNumber(ptdTokens[0]),
-          budgetPct: null,
-          actual: parseNumber(ptdTokens[2]),
-          actualPct: null,
-          py: parseNumber(ptdTokens[4]),
-          pyPct: null,
-        };
-      }
-      if (ytdTokens.length >= 6) {
-        result.occupancyYtd = {
-          budget: parseNumber(ytdTokens[0]),
-          budgetPct: null,
-          actual: parseNumber(ytdTokens[2]),
-          actualPct: null,
-          py: parseNumber(ytdTokens[4]),
-          pyPct: null,
-        };
-      }
+      if (ptdTokens.length >= 3) result.occupancy = extractStatsValues(ptdTokens);
+      if (ytdTokens.length >= 3) result.occupancyYtd = extractStatsValues(ytdTokens);
     }
 
     if (line === "Average Daily Rate") {
@@ -259,26 +259,8 @@ function parseStatsSection(lines: string[]): Partial<StatsResult> {
       const ytdLine = i < lines.length - 1 ? lines[i + 1].trim() : "";
       const ptdTokens = tokenizeNumbers(ptdLine);
       const ytdTokens = tokenizeNumbers(ytdLine);
-      if (ptdTokens.length >= 6) {
-        result.adr = {
-          budget: parseNumber(ptdTokens[0]),
-          budgetPct: null,
-          actual: parseNumber(ptdTokens[2]),
-          actualPct: null,
-          py: parseNumber(ptdTokens[4]),
-          pyPct: null,
-        };
-      }
-      if (ytdTokens.length >= 6) {
-        result.adrYtd = {
-          budget: parseNumber(ytdTokens[0]),
-          budgetPct: null,
-          actual: parseNumber(ytdTokens[2]),
-          actualPct: null,
-          py: parseNumber(ytdTokens[4]),
-          pyPct: null,
-        };
-      }
+      if (ptdTokens.length >= 3) result.adr = extractStatsValues(ptdTokens);
+      if (ytdTokens.length >= 3) result.adrYtd = extractStatsValues(ytdTokens);
     }
 
     if (line === "Revenue per Avl Room") {
@@ -286,26 +268,8 @@ function parseStatsSection(lines: string[]): Partial<StatsResult> {
       const ytdLine = i < lines.length - 1 ? lines[i + 1].trim() : "";
       const ptdTokens = tokenizeNumbers(ptdLine);
       const ytdTokens = tokenizeNumbers(ytdLine);
-      if (ptdTokens.length >= 6) {
-        result.revpar = {
-          budget: parseNumber(ptdTokens[0]),
-          budgetPct: null,
-          actual: parseNumber(ptdTokens[2]),
-          actualPct: null,
-          py: parseNumber(ptdTokens[4]),
-          pyPct: null,
-        };
-      }
-      if (ytdTokens.length >= 6) {
-        result.revparYtd = {
-          budget: parseNumber(ytdTokens[0]),
-          budgetPct: null,
-          actual: parseNumber(ytdTokens[2]),
-          actualPct: null,
-          py: parseNumber(ytdTokens[4]),
-          pyPct: null,
-        };
-      }
+      if (ptdTokens.length >= 3) result.revpar = extractStatsValues(ptdTokens);
+      if (ytdTokens.length >= 3) result.revparYtd = extractStatsValues(ytdTokens);
     }
 
     if (line === "Rooms Occupied") {
@@ -376,6 +340,78 @@ function parseStatsSection(lines: string[]): Partial<StatsResult> {
           pyPct: null,
         };
       }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Old-format stats parser: each number is on its own line, so we collect
+ * the N numeric lines before/after the label and concatenate their tokens.
+ */
+function parseStatsSectionOldFormat(rawLines: string[]): Partial<StatsResult> {
+  const result: Partial<StatsResult> = {};
+
+  // Collect numeric tokens from lines before index `idx`.
+  // Take only the last `maxTokens` tokens (closest to label = this row's values).
+  function collectTokensBefore(idx: number, maxLines: number, maxTokens: number = 9): string[] {
+    const allTokens: string[] = [];
+    for (let j = idx - 1; j >= Math.max(0, idx - maxLines) && isNumericLine(rawLines[j]); j--) {
+      const t = tokenizeNumbers(rawLines[j].trim());
+      allTokens.unshift(...t);
+    }
+    return allTokens.slice(-maxTokens);
+  }
+
+  // Collect numeric tokens from lines after index `idx`.
+  // Take only the first `maxTokens` tokens (closest to label = this row's values).
+  function collectTokensAfter(idx: number, maxLines: number, maxTokens: number = 9): string[] {
+    const allTokens: string[] = [];
+    for (let j = idx + 1; j <= Math.min(rawLines.length - 1, idx + maxLines) && isNumericLine(rawLines[j]); j++) {
+      const t = tokenizeNumbers(rawLines[j].trim());
+      allTokens.push(...t);
+    }
+    return allTokens.slice(0, maxTokens);
+  }
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i].trim();
+
+    // Old-format stats: always 6-column (Budget, BudgetPOR, Actual, ActualPOR, PY, PYPOR)
+    if (line === "Occupancy") {
+      const ptdTokens = collectTokensBefore(i, 12, 6);
+      const ytdTokens = collectTokensAfter(i, 12, 6);
+      if (ptdTokens.length >= 3) result.occupancy = extractStatsValues(ptdTokens);
+      if (ytdTokens.length >= 3) result.occupancyYtd = extractStatsValues(ytdTokens);
+    }
+
+    if (line === "Average Daily Rate") {
+      const ptdTokens = collectTokensBefore(i, 12, 6);
+      const ytdTokens = collectTokensAfter(i, 12, 6);
+      if (ptdTokens.length >= 3) result.adr = extractStatsValues(ptdTokens);
+      if (ytdTokens.length >= 3) result.adrYtd = extractStatsValues(ytdTokens);
+    }
+
+    if (line === "Revenue per Avl Room") {
+      const ptdTokens = collectTokensBefore(i, 12, 6);
+      const ytdTokens = collectTokensAfter(i, 12, 6);
+      if (ptdTokens.length >= 3) result.revpar = extractStatsValues(ptdTokens);
+      if (ytdTokens.length >= 3) result.revparYtd = extractStatsValues(ytdTokens);
+    }
+
+    if (line === "Rooms Occupied") {
+      const ptdTokens = collectTokensBefore(i, 12, 6);
+      const ytdTokens = collectTokensAfter(i, 12, 6);
+      if (ptdTokens.length >= 3) result.roomsSold = extractStatsValues(ptdTokens);
+      if (ytdTokens.length >= 3) result.roomsSoldYtd = extractStatsValues(ytdTokens);
+    }
+
+    if (line === "Rooms Available") {
+      const ptdTokens = collectTokensBefore(i, 12, 6);
+      const ytdTokens = collectTokensAfter(i, 12, 6);
+      if (ptdTokens.length >= 3) result.roomsAvailable = extractStatsValues(ptdTokens);
+      if (ytdTokens.length >= 3) result.roomsAvailableYtd = extractStatsValues(ytdTokens);
     }
   }
 
@@ -574,7 +610,11 @@ export function parseMcKibbonPDF(text: string, filename?: string): Partial<Month
   };
 
   // ── Stats Section ──────────────────────────────────────────────────────────
-  const stats = parseStatsSection(lines);
+  // For old-format PDFs, stats labels are on their own lines in rawLines
+  // (each number is also on its own line), so we must use rawLines
+  const stats = isOldFormat
+    ? parseStatsSectionOldFormat(rawLines)
+    : parseStatsSection(lines);
 
   if (stats.occupancy) {
     result.occupancy_pct = pctToDecimal(stats.occupancy.actual);

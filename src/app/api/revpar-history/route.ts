@@ -84,9 +84,9 @@ export async function GET() {
     const map: Record<string, Record<number, number>> = {}; // month -> year -> revpar
 
     for (const row of rows ?? []) {
-      const d = new Date(row.period);
-      const year = d.getFullYear();
-      const month = d.getMonth() + 1;
+      // Parse directly from YYYY-MM-DD string to avoid UTC timezone shift
+      const year = parseInt(row.period.slice(0, 4), 10);
+      const month = parseInt(row.period.slice(5, 7), 10);
       yearSet.add(year);
       if (!map[month]) map[month] = {};
       if (row.revpar != null) {

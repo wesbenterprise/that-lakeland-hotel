@@ -6,6 +6,31 @@ body {
   @apply bg-slate-900 text-slate-100;
 }
 
+/* Print styles */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print,
+  aside,
+  nav {
+    display: none !important;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+  table {
+    color: black !important;
+    background: white !important;
+  }
+  th, td {
+    color: black !important;
+    background: white !important;
+    border-color: #ccc !important;
+  }
+}
+
 /* Custom scrollbar for dark theme */
 ::-webkit-scrollbar {
   width: 8px;

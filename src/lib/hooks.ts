@@ -1,138 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { supabase, isDemoMode } from "./supabase";
+import { useEffect, useState } from "react";
 import { MonthlyPeriod, Distribution } from "./types";
-import { relativeTime } from "./utils";
-
-// Demo data for when Supabase isn't connected
-const DEMO_DATA: MonthlyPeriod[] = generateDemoData();
-
-function generateDemoData(): MonthlyPeriod[] {
-  const data: MonthlyPeriod[] = [];
-  const baseRoomRev = 500000_00; // $500K in cents
-  const months = 24;
-  
-  for (let i = 0; i < months; i++) {
-    const date = new Date(2024, i, 1);
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    
-    // Seasonal variation
-    const seasonFactor = 1 + 0.15 * Math.sin((month - 3) * Math.PI / 6);
-    const growthFactor = 1 + (i * 0.005);
-    
-    const roomRev = Math.round(baseRoomRev * seasonFactor * growthFactor);
-    const fbRev = Math.round(roomRev * 0.08);
-    const otherRev = Math.round(roomRev * 0.02);
-    const miscIncome = Math.round(roomRev * 0.015);
-    const totalRev = roomRev + fbRev + otherRev + miscIncome;
-    
-    const roomsAvail = month === 2 ? (year % 4 === 0 ? 3654 : 3528) : [3906, 3528, 3906, 3780, 3906, 3780, 3906, 3906, 3780, 3906, 3780, 3906][month - 1];
-    const occupancy = 0.70 + 0.12 * Math.sin((month - 3) * Math.PI / 6) + Math.random() * 0.05;
-    const roomsSold = Math.round(roomsAvail * occupancy);
-    const adr = Math.round(roomRev / roomsSold);
-    const revpar = Math.round(roomRev / roomsAvail);
-    
-    const roomsExp = Math.round(roomRev * 0.18);
-    const fbExp = Math.round(fbRev * 0.35);
-    const otherOpExp = Math.round(otherRev * 0.4);
-    
-    const adminGen = Math.round(totalRev * 0.13);
-    const salesMktg = Math.round(totalRev * 0.10);
-    const propOps = Math.round(totalRev * 0.035);
-    const utilities = Math.round(totalRev * 0.025);
-    const itTelecom = Math.round(totalRev * 0.008);
-    
-    const deptExpenses = roomsExp + fbExp + otherOpExp;
-    const undistributed = adminGen + salesMktg + propOps + utilities + itTelecom;
-    const gop = totalRev - deptExpenses - undistributed;
-    const gopPct = gop / totalRev;
-    
-    const mgmtFees = Math.round(totalRev * 0.03);
-    const propTaxes = Math.round(totalRev * 0.04);
-    const insurance = Math.round(totalRev * 0.015);
-    const reserve = Math.round(totalRev * 0.04);
-    
-    const nop = gop - mgmtFees - propTaxes - insurance - reserve;
-    const nopPct = nop / totalRev;
-    
-    // Budget = actual * 1.02 (slightly optimistic)
-    const budgetFactor = 1.02;
-    
-    data.push({
-      period: `${year}-${String(month).padStart(2, "0")}-01`,
-      year,
-      month,
-      rooms_available: roomsAvail,
-      rooms_sold: roomsSold,
-      occupancy_pct: Math.round(occupancy * 10000) / 10000,
-      adr,
-      revpar,
-      room_revenue: roomRev,
-      fb_revenue: fbRev,
-      other_operated_revenue: otherRev,
-      misc_income: miscIncome,
-      total_revenue: totalRev,
-      rooms_expense: roomsExp,
-      fb_expense: fbExp,
-      other_operated_expense: otherOpExp,
-      admin_general: adminGen,
-      sales_marketing: salesMktg,
-      property_ops_maintenance: propOps,
-      utilities,
-      it_telecom: itTelecom,
-      gross_operating_profit: gop,
-      gop_pct: Math.round(gopPct * 10000) / 10000,
-      management_fees: mgmtFees,
-      property_taxes: propTaxes,
-      insurance,
-      reserve_for_replacement: reserve,
-      nop_hotel: nop,
-      nop_pct: Math.round(nopPct * 10000) / 10000,
-      // Budget
-      room_revenue_budget: Math.round(roomRev * budgetFactor),
-      fb_revenue_budget: Math.round(fbRev * budgetFactor),
-      total_revenue_budget: Math.round(totalRev * budgetFactor),
-      rooms_expense_budget: Math.round(roomsExp * 0.98),
-      fb_expense_budget: Math.round(fbExp * 0.98),
-      admin_general_budget: Math.round(adminGen * 0.98),
-      sales_marketing_budget: Math.round(salesMktg * 0.98),
-      property_ops_maintenance_budget: Math.round(propOps * 0.98),
-      utilities_budget: Math.round(utilities * 0.98),
-      gop_budget: Math.round(gop * budgetFactor),
-      gop_pct_budget: Math.round(gopPct * budgetFactor * 10000) / 10000,
-      nop_hotel_budget: Math.round(nop * budgetFactor),
-      nop_pct_budget: Math.round(nopPct * budgetFactor * 10000) / 10000,
-      occupancy_pct_budget: Math.round(occupancy * budgetFactor * 10000) / 10000,
-      adr_budget: Math.round(adr * budgetFactor),
-      revpar_budget: Math.round(revpar * budgetFactor),
-      // PY
-      room_revenue_py: Math.round(roomRev * 0.94),
-      fb_revenue_py: Math.round(fbRev * 0.94),
-      total_revenue_py: Math.round(totalRev * 0.94),
-      gop_py: Math.round(gop * 0.92),
-      gop_pct_py: Math.round(gopPct * 0.98 * 10000) / 10000,
-      nop_hotel_py: Math.round(nop * 0.90),
-      nop_pct_py: Math.round(nopPct * 0.97 * 10000) / 10000,
-      occupancy_pct_py: Math.round(occupancy * 0.96 * 10000) / 10000,
-      adr_py: Math.round(adr * 0.95),
-      revpar_py: Math.round(revpar * 0.93),
-      // YTD
-      total_revenue_ytd: Math.round(totalRev * month * 0.95),
-      room_revenue_ytd: Math.round(roomRev * month * 0.95),
-      gop_ytd: Math.round(gop * month * 0.95),
-      gop_pct_ytd: Math.round(gopPct * 10000) / 10000,
-      nop_hotel_ytd: Math.round(nop * month * 0.95),
-      nop_pct_ytd: Math.round(nopPct * 10000) / 10000,
-      total_revenue_ytd_budget: Math.round(totalRev * budgetFactor * month),
-      gop_ytd_budget: Math.round(gop * budgetFactor * month),
-      nop_hotel_ytd_budget: Math.round(nop * budgetFactor * month),
-      source_file: `demo-${year}-${String(month).padStart(2, "0")}.pdf`,
-    });
-  }
-  return data;
-}
+import { fullMonthName } from "./utils";
 
 export function useMonthlyData() {
   const [data, setData] = useState<MonthlyPeriod[]>([]);
@@ -142,20 +12,19 @@ export function useMonthlyData() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Always fetch via API route (uses service role key, bypasses RLS)
         const res = await fetch("/api/periods");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
 
-        if (json.demo || !json.data || json.data.length === 0) {
-          // No live data — use demo
-          setData(DEMO_DATA);
+        if (!json.data || json.data.length === 0) {
+          setError("No data available. Upload an income statement to get started.");
+          setData([]);
         } else {
           setData(json.data);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch data");
-        setData(DEMO_DATA);
+        setData([]);
       } finally {
         setLoading(false);
       }
@@ -173,17 +42,6 @@ export function useLatestPeriod() {
   return { latest, allPeriods: data, loading, error };
 }
 
-// Demo distributions data
-const DEMO_DISTRIBUTIONS: Distribution[] = [
-  { distribution_date: '2022-04-01', total_amount: 45000000, barnett_pct: 0.68, costa_pct: 0.28, lee_pct: 0.02, loute_pct: 0.02, barnett_amount: 30600000, costa_amount: 12600000, lee_amount: 900000, loute_amount: 900000, notes: 'Q2 2022 distribution (original ownership split)' },
-  { distribution_date: '2022-10-01', total_amount: 45000000, barnett_pct: 0.68, costa_pct: 0.28, lee_pct: 0.02, loute_pct: 0.02, barnett_amount: 30600000, costa_amount: 12600000, lee_amount: 900000, loute_amount: 900000, notes: 'Q4 2022 distribution (original ownership split)' },
-  { distribution_date: '2023-06-01', total_amount: 108000000, barnett_pct: 0.65, costa_pct: 0.27, lee_pct: 0.06, loute_pct: 0.02, barnett_amount: 70200000, costa_amount: 29160000, lee_amount: 6480000, loute_amount: 2160000, notes: 'Q2 2023 distribution (revised ownership)' },
-  { distribution_date: '2023-10-01', total_amount: 54000000, barnett_pct: 0.65, costa_pct: 0.27, lee_pct: 0.06, loute_pct: 0.02, barnett_amount: 35100000, costa_amount: 14580000, lee_amount: 3240000, loute_amount: 1080000, notes: 'Q4 2023 distribution' },
-  { distribution_date: '2024-04-01', total_amount: 90000000, barnett_pct: 0.65, costa_pct: 0.27, lee_pct: 0.06, loute_pct: 0.02, barnett_amount: 58500000, costa_amount: 24300000, lee_amount: 5400000, loute_amount: 1800000, notes: 'Q2 2024 distribution' },
-  { distribution_date: '2024-12-01', total_amount: 51000000, barnett_pct: 0.65, costa_pct: 0.27, lee_pct: 0.06, loute_pct: 0.02, barnett_amount: 33150000, costa_amount: 13770000, lee_amount: 3060000, loute_amount: 1220000, notes: 'Q4 2024 distribution' },
-  { distribution_date: '2025-05-01', total_amount: 120000000, barnett_pct: 0.65, costa_pct: 0.27, lee_pct: 0.06, loute_pct: 0.02, barnett_amount: 78000000, costa_amount: 32400000, lee_amount: 7200000, loute_amount: 2400000, notes: 'Q2 2025 distribution' },
-];
-
 export function useDistributions() {
   const [data, setData] = useState<Distribution[]>([]);
   const [loading, setLoading] = useState(true);
@@ -198,10 +56,11 @@ export function useDistributions() {
         if (json.data && json.data.length > 0) {
           setData(json.data);
         } else {
-          setData(DEMO_DISTRIBUTIONS);
+          setData([]);
         }
-      } catch {
-        setData(DEMO_DISTRIBUTIONS);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to fetch distributions");
+        setData([]);
       } finally {
         setLoading(false);
       }
@@ -212,10 +71,23 @@ export function useDistributions() {
   return { data, loading, error };
 }
 
-export function useLastUpdated(): string | null {
+/** Returns "Data through {Month} {Year}" for the sidebar footer */
+export function useDataThroughLabel(): { label: string | null; isStale: boolean } {
   const { data } = useMonthlyData();
-  if (data.length === 0) return null;
+  if (data.length === 0) return { label: null, isStale: false };
   const latest = data[data.length - 1];
-  const periodDate = new Date(latest.period + "T00:00:00");
-  return relativeTime(periodDate);
+  const label = `Data through ${fullMonthName(latest.month)} ${latest.year}`;
+
+  // Stale if latest period is more than 45 days ago
+  const periodDate = new Date(latest.year, latest.month - 1, 1);
+  const daysSince = (Date.now() - periodDate.getTime()) / (1000 * 60 * 60 * 24);
+  const isStale = daysSince > 75; // 75 days ≈ 2.5 months — data should be updated monthly
+
+  return { label, isStale };
+}
+
+// Legacy alias (used by Sidebar)
+export function useLastUpdated(): string | null {
+  const { label } = useDataThroughLabel();
+  return label;
 }

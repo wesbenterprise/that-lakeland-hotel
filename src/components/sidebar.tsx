@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuth } from "./auth-provider";
-import { useLastUpdated } from "@/lib/hooks";
+import { useDataThroughLabel } from "@/lib/hooks";
 import {
   BarChart3,
   TrendingUp,
@@ -17,11 +17,16 @@ import {
   X,
   Calendar,
   DollarSign,
+  Target,
+  ClipboardList,
+  AlertTriangle,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Overview", icon: BarChart3 },
   { href: "/trends", label: "Trends", icon: TrendingUp },
+  { href: "/budget", label: "Budget", icon: Target },
+  { href: "/management", label: "Management", icon: ClipboardList },
   { href: "/month", label: "Month Detail", icon: FileText },
   { href: "/yearly", label: "Yearly", icon: Calendar },
   { href: "/distributions", label: "Distributions", icon: DollarSign },
@@ -32,7 +37,7 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
-  const lastUpdated = useLastUpdated();
+  const { label: dataLabel, isStale } = useDataThroughLabel();
   const [isOpen, setIsOpen] = useState(false);
 
   if (pathname === "/login") return null;
@@ -54,7 +59,7 @@ export function Sidebar() {
         <span className="font-bold text-sm text-slate-100">SHS Lakeland</span>
       </div>
 
-      {/* Overlay backdrop — mobile only, visible when drawer is open */}
+      {/* Overlay backdrop — mobile only */}
       {isOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
@@ -66,11 +71,8 @@ export function Sidebar() {
       {/* Sidebar drawer */}
       <aside
         className={cn(
-          // Base: fixed overlay drawer
           "fixed inset-y-0 left-0 z-50 w-60 bg-slate-800 border-r border-slate-700 flex flex-col transition-transform duration-200",
-          // Desktop: participate in flex flow, always visible
           "lg:relative lg:translate-x-0",
-          // Mobile: slide in/out
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -123,9 +125,22 @@ export function Sidebar() {
         </nav>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-700 space-y-3 shrink-0">
-          {lastUpdated && (
-            <p className="text-xs text-slate-500">Last updated {lastUpdated}</p>
+        <div className="p-4 border-t border-slate-700 space-y-2 shrink-0">
+          {dataLabel && (
+            <div className="space-y-1">
+              {isStale ? (
+                <div className="flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
+                  <p className="text-xs text-amber-400">
+                    ⚠ Data may be stale
+                    <br />
+                    <span className="text-slate-500">{dataLabel}</span>
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">{dataLabel}</p>
+              )}
+            </div>
           )}
           {user && (
             <div className="flex items-center justify-between">
