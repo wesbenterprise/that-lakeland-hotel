@@ -20,11 +20,13 @@ import {
   Target,
   ClipboardList,
   AlertTriangle,
+  History,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Overview", icon: BarChart3 },
   { href: "/trends", label: "Trends", icon: TrendingUp },
+  { href: "/historical", label: "Historical", icon: History },
   { href: "/budget", label: "Budget", icon: Target },
   { href: "/management", label: "Management", icon: ClipboardList },
   { href: "/month", label: "Month Detail", icon: FileText },
