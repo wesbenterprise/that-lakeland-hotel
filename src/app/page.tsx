@@ -288,7 +288,9 @@ export default function OverviewPage() {
 
       {/* Income Statement Summary */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">Income Statement Summary</h3>
+        <h3 className="text-sm font-medium text-slate-300 mb-4">
+          Income Statement Summary — {fullMonthName(p.month)} {p.year}
+        </h3>
         <SummaryTable period={currentPeriod} />
       </div>
     </div>

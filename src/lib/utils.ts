@@ -10,7 +10,7 @@ export function formatCurrency(cents: number | null | undefined, abbreviated = f
   if (cents == null) return "—";
   const dollars = cents / 100;
   if (abbreviated) {
-    if (Math.abs(dollars) >= 1_000_000) return `$${(dollars / 1_000_000).toFixed(1)}M`;
+    if (Math.abs(dollars) >= 1_000_000) return `$${(dollars / 1_000_000).toFixed(3)}M`;
     if (Math.abs(dollars) >= 1_000) return `$${(dollars / 1_000).toFixed(0)}K`;
   }
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(dollars);

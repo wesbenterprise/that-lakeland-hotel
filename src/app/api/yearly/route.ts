@@ -25,17 +25,26 @@ export interface YearlyMetric {
   values: Record<string, number>;
 }
 
+export interface MonthlySeasonality {
+  /** Average share of annual total for each month (index 0 = Jan ... 11 = Dec). Sums to 1 across a full year. */
+  revenue: number[];
+  nop: number[];
+}
+
 export interface YearlyResponse {
   years: number[];
   metrics: YearlyMetric[];
   partialYears?: Record<number, string>;
+  /** Monthly seasonal weights derived from complete prior years (excl. 2020 COVID). */
+  seasonality?: MonthlySeasonality;
 }
 
 // ─── Shape builder ────────────────────────────────────────────────────────────
 
 function buildResponse(
   rows: YearRow[],
-  partialYears?: Record<number, string>
+  partialYears?: Record<number, string>,
+  seasonality?: MonthlySeasonality
 ): YearlyResponse {
   const years = rows.map((r) => r.year);
 
@@ -56,7 +65,12 @@ function buildResponse(
     { label: "Months of Data", format: "integer", values: val("months") },
   ];
 
-  return { years, metrics, ...(partialYears ? { partialYears } : {}) };
+  return {
+    years,
+    metrics,
+    ...(partialYears ? { partialYears } : {}),
+    ...(seasonality ? { seasonality } : {}),
+  };
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────
@@ -85,6 +99,10 @@ export async function GET() {
     if (mErr) {
       return NextResponse.json({ error: mErr.message }, { status: 500 });
     }
+
+    // ── Build monthly lookup for seasonality ──────────────────────────────────
+    // Key: `${year}-${month}` → { revenue, nop }
+    const byYearMonth: Record<string, { revenue: number; nop: number }> = {};
 
     // Aggregate by year in JS using the integer `year` column directly
     const byYear: Record<
@@ -122,6 +140,13 @@ export async function GET() {
       byYear[year].rooms_sold += row.rooms_sold ?? 0;
       byYear[year].rooms_available += row.rooms_available ?? 0;
       byYear[year].months += 1;
+
+      // Track monthly breakdown for seasonality
+      const monthKey = `${year}-${row.month as number}`;
+      byYearMonth[monthKey] = {
+        revenue: (row.total_revenue ?? 0),
+        nop: (row.nop_hotel ?? 0),
+      };
     }
 
     const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -161,6 +186,45 @@ export async function GET() {
         };
       });
 
+    // ── Compute monthly seasonality from complete, non-COVID prior years ──────
+    const COVID_YEAR = 2020;
+    const completeYears = rows.filter(
+      (r) => r.months === 12 && r.year !== COVID_YEAR && r.year !== currentYear
+    );
+
+    let seasonality: MonthlySeasonality | undefined;
+    if (completeYears.length > 0) {
+      const revShares: number[][] = [];
+      const nopShares: number[][] = [];
+
+      for (const yr of completeYears) {
+        const annualRev = yr.total_revenue * 100; // back to cents for consistent math
+        const annualNop = yr.nop * 100;
+        if (annualRev <= 0) continue;
+
+        const revShare: number[] = [];
+        const nopShare: number[] = [];
+        for (let m = 1; m <= 12; m++) {
+          const key = `${yr.year}-${m}`;
+          const monthData = byYearMonth[key];
+          revShare.push(monthData ? monthData.revenue / annualRev : 0);
+          nopShare.push(monthData ? monthData.nop / annualNop : 0);
+        }
+        revShares.push(revShare);
+        nopShares.push(nopShare);
+      }
+
+      if (revShares.length > 0) {
+        const avgRevShares = Array.from({ length: 12 }, (_, i) =>
+          revShares.reduce((s, yr) => s + (yr[i] ?? 0), 0) / revShares.length
+        );
+        const avgNopShares = Array.from({ length: 12 }, (_, i) =>
+          nopShares.reduce((s, yr) => s + (yr[i] ?? 0), 0) / nopShares.length
+        );
+        seasonality = { revenue: avgRevShares, nop: avgNopShares };
+      }
+    }
+
     // Build partial year annotations
     const partial: Record<number, string> = {};
     for (const row of rows) {
@@ -170,7 +234,11 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json(buildResponse(rows, Object.keys(partial).length > 0 ? partial : undefined));
+    return NextResponse.json(buildResponse(
+      rows,
+      Object.keys(partial).length > 0 ? partial : undefined,
+      seasonality
+    ));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
     return NextResponse.json({ error: message }, { status: 500 });

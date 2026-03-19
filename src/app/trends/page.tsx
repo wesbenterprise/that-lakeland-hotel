@@ -198,8 +198,12 @@ function TrendsContent() {
                 tickFormatter={(v) => {
                   const hasPct = selected.some(k => METRICS[k].type === "pct");
                   const hasDollar = selected.some(k => METRICS[k].type === "dollars");
-                  if (hasPct && !hasDollar) return `${v}%`;
-                  return `$${(v / 1000).toFixed(0)}K`;
+                  if (hasPct && !hasDollar) return `${v.toFixed(1)}%`;
+                  // Dollar metrics: scale by magnitude so ADR/RevPAR don't show as $0K
+                  const absV = Math.abs(v);
+                  if (absV >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+                  if (absV >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
+                  return `$${v.toFixed(0)}`;
                 }}
               />
               <Tooltip

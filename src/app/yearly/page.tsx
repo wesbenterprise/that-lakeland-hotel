@@ -15,10 +15,16 @@ interface YearlyMetric {
   values: Record<string, number>;
 }
 
+interface MonthlySeasonality {
+  revenue: number[]; // 12 values, Jan=0 ... Dec=11
+  nop: number[];
+}
+
 interface YearlyData {
   years: number[];
   metrics: YearlyMetric[];
   partialYears?: Record<string, string>;
+  seasonality?: MonthlySeasonality;
 }
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -28,7 +34,7 @@ function formatValue(value: number | null | undefined, format: "currency" | "per
   if (format === "percent") return `${(value * 100).toFixed(1)}%`;
   if (format === "integer") return value.toLocaleString("en-US");
   const abs = Math.abs(value);
-  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(3)}M`;
   if (abs >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
   return `$${value.toFixed(0)}`;
 }
@@ -102,7 +108,7 @@ function YearlyChart({ years, metrics, partialYears }: {
               formatter={(value: number, name: string) => {
                 if (name === "NOP Margin %") return [`${value.toFixed(1)}%`, name];
                 const abs = Math.abs(value);
-                if (abs >= 1_000_000) return [`$${(value / 1_000_000).toFixed(2)}M`, name];
+                if (abs >= 1_000_000) return [`$${(value / 1_000_000).toFixed(3)}M`, name];
                 return [`$${(value / 1_000).toFixed(0)}K`, name];
               }}
             />
@@ -226,10 +232,13 @@ function YearlyTable({ years, metrics, partialYears }: {
 
 // ─── Annualization Banner ─────────────────────────────────────────────────────
 
-function AnnualizationBanner({ years, metrics, partialYears }: {
+const MONTH_NAMES_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+function AnnualizationBanner({ years, metrics, partialYears, seasonality }: {
   years: number[];
   metrics: YearlyMetric[];
   partialYears?: Record<string, string>;
+  seasonality?: MonthlySeasonality;
 }) {
   const currentYear = new Date().getFullYear();
   if (!partialYears?.[currentYear]) return null;
@@ -246,33 +255,53 @@ function AnnualizationBanner({ years, metrics, partialYears }: {
 
   if (!actualRev) return null;
 
-  const annualizedRev = (actualRev / months) * 12;
-  const annualizedNop = actualNop ? (actualNop / months) * 12 : null;
+  // ── Seasonal projection ────────────────────────────────────────────────────
+  // Use historical monthly weights so Jan–Feb (peak months) don't over-inflate
+  // the full-year projection. Fall-back to naive average if no seasonality data.
+  let annualizedRev: number;
+  let annualizedNop: number | null = null;
+  let projectionNote = "";
+  let lastSeasonalMonth = "";
+
+  if (seasonality && seasonality.revenue.length === 12) {
+    // Sum the seasonal share for the completed months (0-indexed)
+    const revShare = seasonality.revenue.slice(0, months).reduce((s, w) => s + w, 0);
+    const nopShare = seasonality.nop.slice(0, months).reduce((s, w) => s + w, 0);
+
+    annualizedRev = revShare > 0.01 ? actualRev / revShare : (actualRev / months) * 12;
+    annualizedNop = actualNop && nopShare > 0.01 ? actualNop / nopShare : (actualNop ? (actualNop / months) * 12 : null);
+    lastSeasonalMonth = MONTH_NAMES_FULL[months - 1];
+    projectionNote = `Seasonally adjusted — Jan–${lastSeasonalMonth} historically represent ${(revShare * 100).toFixed(1)}% of annual revenue`;
+  } else {
+    annualizedRev = (actualRev / months) * 12;
+    annualizedNop = actualNop ? (actualNop / months) * 12 : null;
+    projectionNote = "Simple linear extrapolation (insufficient historical data for seasonal adjustment)";
+  }
 
   return (
     <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-4">
       <div className="flex items-start gap-3">
         <span className="text-amber-400 text-lg">📊</span>
-        <div>
+        <div className="flex-1">
           <h4 className="text-sm font-semibold text-amber-300 mb-1">
             {currentYear} Partial Year — {note}
           </h4>
-          <div className="text-xs text-slate-300 space-y-1">
+          <div className="text-xs text-slate-300 space-y-1.5">
             <p>
               <span className="text-slate-400">YTD Actual: </span>
               <span className="font-semibold">{formatValue(actualRev, "currency")}</span> revenue
-              {annualizedNop && <span>, {formatValue(actualNop ?? null, "currency")} NOP</span>}
+              {actualNop != null && <span>, <span className="font-semibold">{formatValue(actualNop, "currency")}</span> NOP</span>}
             </p>
             <p>
-              <span className="text-slate-400">Annualized (if current pace continues): </span>
+              <span className="text-slate-400">Full-year projection: </span>
               <span className="font-semibold text-amber-300 border-b border-dashed border-amber-600">
                 {formatValue(annualizedRev, "currency")}
               </span> revenue
-              {annualizedNop && (
+              {annualizedNop != null && (
                 <span>, <span className="text-amber-300 border-b border-dashed border-amber-600">{formatValue(annualizedNop, "currency")}</span> NOP</span>
               )}
-              <span className="text-slate-500"> (projected)</span>
             </p>
+            <p className="text-slate-500 italic">{projectionNote}</p>
           </div>
         </div>
       </div>
@@ -323,7 +352,7 @@ export default function YearlyPage() {
       </div>
 
       {/* Annualization Banner */}
-      <AnnualizationBanner years={data.years} metrics={data.metrics} partialYears={data.partialYears} />
+      <AnnualizationBanner years={data.years} metrics={data.metrics} partialYears={data.partialYears} seasonality={data.seasonality} />
 
       {/* Bar + NOP margin chart */}
       <YearlyChart years={data.years} metrics={data.metrics} partialYears={data.partialYears} />
