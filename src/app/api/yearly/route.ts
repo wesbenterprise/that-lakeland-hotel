@@ -25,18 +25,29 @@ export interface YearlyMetric {
   values: Record<string, number>;
 }
 
-export interface MonthlySeasonality {
-  /** Average share of annual total for each month (index 0 = Jan ... 11 = Dec). Sums to 1 across a full year. */
-  revenue: number[];
-  nop: number[];
+/**
+ * YoY-trend projection for a partial year.
+ * Logic: take the growth rate seen in the completed months vs the same
+ * months of the prior full year, then apply that rate to the full prior year.
+ * e.g. Jan-Feb 2026 is +2.4% above Jan-Feb 2025 → project 2026 = 2025_full × 1.024
+ */
+export interface PartialYearProjection {
+  priorYear: number;
+  priorYtdRevenue: number;    // prior year same-N-months revenue (dollars)
+  priorYtdNop: number | null;
+  priorFullYearRevenue: number; // prior full year revenue (dollars)
+  priorFullYearNop: number | null;
+  ytdGrowthPct: number;         // e.g. 0.024 = +2.4%
+  projectedRevenue: number;     // priorFullYear × (1 + ytdGrowthPct)
+  projectedNop: number | null;
 }
 
 export interface YearlyResponse {
   years: number[];
   metrics: YearlyMetric[];
   partialYears?: Record<number, string>;
-  /** Monthly seasonal weights derived from complete prior years (excl. 2020 COVID). */
-  seasonality?: MonthlySeasonality;
+  /** YoY-trend-based full-year projection for the current partial year. */
+  projection?: PartialYearProjection;
 }
 
 // ─── Shape builder ────────────────────────────────────────────────────────────
@@ -44,7 +55,7 @@ export interface YearlyResponse {
 function buildResponse(
   rows: YearRow[],
   partialYears?: Record<number, string>,
-  seasonality?: MonthlySeasonality
+  projection?: PartialYearProjection
 ): YearlyResponse {
   const years = rows.map((r) => r.year);
 
@@ -69,7 +80,7 @@ function buildResponse(
     years,
     metrics,
     ...(partialYears ? { partialYears } : {}),
-    ...(seasonality ? { seasonality } : {}),
+    ...(projection ? { projection } : {}),
   };
 }
 
@@ -186,42 +197,56 @@ export async function GET() {
         };
       });
 
-    // ── Compute monthly seasonality from complete, non-COVID prior years ──────
-    const COVID_YEAR = 2020;
-    const completeYears = rows.filter(
-      (r) => r.months === 12 && r.year !== COVID_YEAR && r.year !== currentYear
-    );
+    // ── YoY-trend projection for partial year ────────────────────────────────
+    // Find the current partial year and the most recent complete prior year.
+    // Compute: priorFullYear × (ytd_current / priorYear_same_months)
+    const partialRow = rows.find((r) => r.year === currentYear && r.months < 12);
+    let projection: PartialYearProjection | undefined;
 
-    let seasonality: MonthlySeasonality | undefined;
-    if (completeYears.length > 0) {
-      const revShares: number[][] = [];
-      const nopShares: number[][] = [];
+    if (partialRow) {
+      const COVID_YEAR = 2020;
+      // Find most recent complete prior year (not COVID, not current)
+      const priorComplete = rows
+        .filter((r) => r.months === 12 && r.year !== COVID_YEAR && r.year < currentYear)
+        .sort((a, b) => b.year - a.year)[0];
 
-      for (const yr of completeYears) {
-        const annualRev = yr.total_revenue * 100; // back to cents for consistent math
-        const annualNop = yr.nop * 100;
-        if (annualRev <= 0) continue;
+      if (priorComplete) {
+        const completedMonths = partialRow.months;
 
-        const revShare: number[] = [];
-        const nopShare: number[] = [];
-        for (let m = 1; m <= 12; m++) {
-          const key = `${yr.year}-${m}`;
-          const monthData = byYearMonth[key];
-          revShare.push(monthData ? monthData.revenue / annualRev : 0);
-          nopShare.push(monthData ? monthData.nop / annualNop : 0);
+        // Sum the same N months from the prior complete year
+        let priorYtdRev = 0;
+        let priorYtdNop = 0;
+        for (let m = 1; m <= completedMonths; m++) {
+          const key = `${priorComplete.year}-${m}`;
+          priorYtdRev += byYearMonth[key]?.revenue ?? 0;
+          priorYtdNop += byYearMonth[key]?.nop ?? 0;
         }
-        revShares.push(revShare);
-        nopShares.push(nopShare);
-      }
 
-      if (revShares.length > 0) {
-        const avgRevShares = Array.from({ length: 12 }, (_, i) =>
-          revShares.reduce((s, yr) => s + (yr[i] ?? 0), 0) / revShares.length
-        );
-        const avgNopShares = Array.from({ length: 12 }, (_, i) =>
-          nopShares.reduce((s, yr) => s + (yr[i] ?? 0), 0) / nopShares.length
-        );
-        seasonality = { revenue: avgRevShares, nop: avgNopShares };
+        // Current YTD (in cents)
+        let ytdRev = 0;
+        let ytdNop = 0;
+        for (let m = 1; m <= completedMonths; m++) {
+          const key = `${currentYear}-${m}`;
+          ytdRev += byYearMonth[key]?.revenue ?? 0;
+          ytdNop += byYearMonth[key]?.nop ?? 0;
+        }
+
+        if (priorYtdRev > 0 && ytdRev > 0) {
+          const growthPct = (ytdRev - priorYtdRev) / priorYtdRev;
+          const priorFullRev = priorComplete.total_revenue; // already in dollars
+          const priorFullNop = priorComplete.nop;
+
+          projection = {
+            priorYear: priorComplete.year,
+            priorYtdRevenue: priorYtdRev / 100,
+            priorYtdNop: priorYtdNop !== 0 ? priorYtdNop / 100 : null,
+            priorFullYearRevenue: priorFullRev,
+            priorFullYearNop: priorFullNop,
+            ytdGrowthPct: growthPct,
+            projectedRevenue: priorFullRev * (1 + growthPct),
+            projectedNop: priorFullNop ? priorFullNop * (1 + growthPct) : null,
+          };
+        }
       }
     }
 
@@ -237,7 +262,7 @@ export async function GET() {
     return NextResponse.json(buildResponse(
       rows,
       Object.keys(partial).length > 0 ? partial : undefined,
-      seasonality
+      projection
     ));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
