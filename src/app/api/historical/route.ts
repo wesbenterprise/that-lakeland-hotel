@@ -112,10 +112,14 @@ export async function GET() {
       { key: "nop_pct",               label: "NOP %",          type: "percent",  field: "nop_pct" },
     ];
 
+    // room_revenue has sign issues in early data — always use abs value
+    const ALWAYS_ABS: (keyof RowType)[] = ["room_revenue"];
+
     const raw = (r: RowType | undefined, field: keyof RowType): number | null => {
       if (!r) return null;
       const v = r[field];
-      return typeof v === "number" ? v : null;
+      if (typeof v !== "number") return null;
+      return ALWAYS_ABS.includes(field) ? Math.abs(v) : v;
     };
 
     // ── Build monthly data per metric ─────────────────────────────────────────
