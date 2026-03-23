@@ -140,9 +140,9 @@ function ExecutiveSummary({ period }: { period: MonthlyPeriod }) {
 // ─── Financing Card ───────────────────────────────────────────────────────────
 
 function FinancingCard() {
-  const ORIG_LOAN = 15_500_000;
+  const ORIG_LOAN = 16_500_000;
   const CURR_BALANCE = 13_400_000;
-  const PAID_DOWN = 2_100_000;
+  const PAID_DOWN = 3_100_000;
   const paidPct = PAID_DOWN / ORIG_LOAN;
 
   const fmt = (n: number) =>
