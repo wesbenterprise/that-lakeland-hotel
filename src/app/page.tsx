@@ -137,6 +137,51 @@ function ExecutiveSummary({ period }: { period: MonthlyPeriod }) {
   );
 }
 
+// ─── Financing Card ───────────────────────────────────────────────────────────
+
+function FinancingCard() {
+  const ORIG_LOAN = 15_500_000;
+  const CURR_BALANCE = 13_400_000;
+  const PAID_DOWN = 2_100_000;
+  const paidPct = PAID_DOWN / ORIG_LOAN;
+
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 1, notation: "compact" }).format(n);
+
+  return (
+    <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
+      <h3 className="text-xs font-semibold text-slate-400 uppercase mb-3 tracking-wide">Financing</h3>
+      <div className="grid grid-cols-3 gap-4 mb-3">
+        <div>
+          <p className="text-xs text-slate-500 mb-0.5">Original Loan</p>
+          <p className="text-lg font-bold text-slate-100">{fmt(ORIG_LOAN)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-0.5">Current Balance</p>
+          <p className="text-lg font-bold text-amber-400">{fmt(CURR_BALANCE)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-0.5">Principal Paid Down</p>
+          <p className="text-lg font-bold text-emerald-400">{fmt(PAID_DOWN)}</p>
+        </div>
+      </div>
+      {/* Paydown progress bar */}
+      <div>
+        <div className="flex justify-between text-xs text-slate-500 mb-1">
+          <span>Paydown progress</span>
+          <span>{(paidPct * 100).toFixed(1)}% of original</span>
+        </div>
+        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-emerald-500 rounded-full"
+            style={{ width: `${paidPct * 100}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OverviewPage() {
@@ -207,6 +252,9 @@ export default function OverviewPage() {
 
       {/* YTD Performance Strip */}
       <YTDStrip data={data} selectedYear={p.year} />
+
+      {/* Financing Card */}
+      <FinancingCard />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
