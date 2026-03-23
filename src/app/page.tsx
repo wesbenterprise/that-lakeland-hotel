@@ -140,31 +140,54 @@ function ExecutiveSummary({ period }: { period: MonthlyPeriod }) {
 // ─── Financing Card ───────────────────────────────────────────────────────────
 
 function FinancingCard() {
-  const ORIG_LOAN = 16_500_000;
-  const CURR_BALANCE = 13_400_000;
-  const PAID_DOWN = 3_100_000;
+  const ORIG_LOAN        = 16_500_000;
+  const CURR_BALANCE     = 13_400_000;
+  const PAID_DOWN        = 3_100_000;
+  const MONTHLY_PAYMENT  = 80_645.74;
+  const ANNUAL_DEBT_SVC  = 967_749;
   const paidPct = PAID_DOWN / ORIG_LOAN;
 
-  const fmt = (n: number) =>
+  const fmtCompact = (n: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 1, notation: "compact" }).format(n);
+
+  const fmtFull = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+
+  const fmtRound = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 
   return (
     <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
       <h3 className="text-xs font-semibold text-slate-400 uppercase mb-3 tracking-wide">Financing</h3>
+
+      {/* Row 1 — loan snapshot */}
       <div className="grid grid-cols-3 gap-4 mb-3">
         <div>
           <p className="text-xs text-slate-500 mb-0.5">Original Loan</p>
-          <p className="text-lg font-bold text-slate-100">{fmt(ORIG_LOAN)}</p>
+          <p className="text-lg font-bold text-slate-100">{fmtCompact(ORIG_LOAN)}</p>
         </div>
         <div>
           <p className="text-xs text-slate-500 mb-0.5">Current Balance</p>
-          <p className="text-lg font-bold text-amber-400">{fmt(CURR_BALANCE)}</p>
+          <p className="text-lg font-bold text-amber-400">{fmtCompact(CURR_BALANCE)}</p>
         </div>
         <div>
           <p className="text-xs text-slate-500 mb-0.5">Principal Paid Down</p>
-          <p className="text-lg font-bold text-emerald-400">{fmt(PAID_DOWN)}</p>
+          <p className="text-lg font-bold text-emerald-400">{fmtCompact(PAID_DOWN)}</p>
         </div>
       </div>
+
+      {/* Row 2 — debt service */}
+      <div className="grid grid-cols-2 gap-4 mb-3">
+        <div>
+          <p className="text-xs text-slate-500 mb-0.5">Monthly Payment</p>
+          <p className="text-base font-semibold text-sky-400">{fmtFull(MONTHLY_PAYMENT)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-0.5">Annual Debt Service</p>
+          <p className="text-base font-semibold text-sky-400">{fmtRound(ANNUAL_DEBT_SVC)}</p>
+        </div>
+      </div>
+
       {/* Paydown progress bar */}
       <div>
         <div className="flex justify-between text-xs text-slate-500 mb-1">
