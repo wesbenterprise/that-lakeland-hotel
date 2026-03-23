@@ -140,21 +140,22 @@ function ExecutiveSummary({ period }: { period: MonthlyPeriod }) {
 // ─── Financing Card ───────────────────────────────────────────────────────────
 
 function FinancingCard() {
-  const ORIG_LOAN        = 16_500_000;
-  const CURR_BALANCE     = 13_400_000;
-  const PAID_DOWN        = 3_100_000;
+  // Exact figures from bank statement (as of March 2026)
+  const ORIG_LOAN        = 16_000_000;
+  const CURR_BALANCE     = 13_408_631;
+  const PAID_DOWN        = 2_591_369;
   const MONTHLY_PAYMENT  = 80_645.74;
-  const ANNUAL_DEBT_SVC  = 967_749;
-  const paidPct = PAID_DOWN / ORIG_LOAN;
+  const ANNUAL_DEBT_SVC  = 967_748.88;
+  const INTEREST_RATE    = 0.0325;          // 3.25%
+  const LOAN_ORIGINATED  = "January 7, 2019";
+  const MATURITY_DATE    = "September 15, 2027";
+  const paidPct = PAID_DOWN / ORIG_LOAN;   // 16.2%
 
   const fmtCompact = (n: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 1, notation: "compact" }).format(n);
 
   const fmtFull = (n: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-
-  const fmtRound = (n: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 
   return (
     <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
@@ -167,7 +168,7 @@ function FinancingCard() {
           <p className="text-lg font-bold text-slate-100">{fmtCompact(ORIG_LOAN)}</p>
         </div>
         <div>
-          <p className="text-xs text-slate-500 mb-0.5">Current Balance</p>
+          <p className="text-xs text-slate-500 mb-0.5">Est. Payoff Balance</p>
           <p className="text-lg font-bold text-amber-400">{fmtCompact(CURR_BALANCE)}</p>
         </div>
         <div>
@@ -184,7 +185,23 @@ function FinancingCard() {
         </div>
         <div>
           <p className="text-xs text-slate-500 mb-0.5">Annual Debt Service</p>
-          <p className="text-base font-semibold text-sky-400">{fmtRound(ANNUAL_DEBT_SVC)}</p>
+          <p className="text-base font-semibold text-sky-400">{fmtFull(ANNUAL_DEBT_SVC)}</p>
+        </div>
+      </div>
+
+      {/* Row 3 — loan terms */}
+      <div className="grid grid-cols-3 gap-4 mb-3">
+        <div>
+          <p className="text-xs text-slate-500 mb-0.5">Interest Rate</p>
+          <p className="text-sm font-semibold text-slate-200">{(INTEREST_RATE * 100).toFixed(2)}% fixed</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-0.5">Originated</p>
+          <p className="text-sm font-semibold text-slate-200">{LOAN_ORIGINATED}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-0.5">Maturity</p>
+          <p className="text-sm font-semibold text-slate-200">{MATURITY_DATE}</p>
         </div>
       </div>
 
