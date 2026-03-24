@@ -21,6 +21,7 @@ import {
   ClipboardList,
   AlertTriangle,
   History,
+  Brain,
 } from "lucide-react";
 
 const navItems = [
@@ -32,6 +33,8 @@ const navItems = [
   { href: "/month", label: "Month Detail", icon: FileText },
   { href: "/yearly", label: "Yearly", icon: Calendar },
   { href: "/distributions", label: "Distributions", icon: DollarSign },
+  { divider: true },
+  { href: "/andersons-take", label: "Anderson's Take", icon: Brain },
   { divider: true },
   { href: "/upload", label: "Upload", icon: Upload },
 ] as const;
