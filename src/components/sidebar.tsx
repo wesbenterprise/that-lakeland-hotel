@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   History,
   Brain,
+  Trophy,
 } from "lucide-react";
 
 const navItems = [
@@ -35,6 +36,7 @@ const navItems = [
   { href: "/distributions", label: "Distributions", icon: DollarSign },
   { divider: true },
   { href: "/andersons-take", label: "Anderson's Take", icon: Brain },
+  { href: "/str-performance", label: "STR Performance", icon: Trophy },
   { divider: true },
   { href: "/upload", label: "Upload", icon: Upload },
 ] as const;
