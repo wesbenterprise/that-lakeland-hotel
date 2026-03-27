@@ -58,3 +58,75 @@ export function monthName(month: number): string {
 export function fullMonthName(month: number): string {
   return ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][month - 1] ?? "";
 }
+
+// ─── Year Summary ─────────────────────────────────────────────────────────────
+
+export interface YearSummary {
+  year: number;
+  months: number;           // number of data months present (< 12 = partial)
+  revenue: number;          // total_revenue sum, cents
+  expense: number;          // sum of 9 expense fields, cents
+  nop: number;              // nop_hotel sum, cents
+  gop: number;              // gross_operating_profit sum, cents
+  nopPct: number;           // nop / revenue (0..1 decimal)
+  gopPct: number;           // gop / revenue (0..1 decimal)
+  isPartial: boolean;
+  annualizedRevenue: number;    // revenue * (12 / months), for partial years
+  annualizedExpense: number;
+}
+
+/**
+ * Aggregate monthly_periods rows into per-year summaries.
+ * - All monetary values remain in cents.
+ * - Total expense = rooms_expense + fb_expense + admin_general + sales_marketing
+ *   + property_ops_maintenance + utilities + management_fees + property_taxes + insurance
+ * - Null-coerces all expense fields to 0.
+ * - isPartial = months < 12.
+ * - annualized values scale partial years to 12-month equivalent.
+ */
+export function aggregateByYear(data: import("./types").MonthlyPeriod[]): YearSummary[] {
+  const map = new Map<number, {
+    revenue: number; expense: number; nop: number; gop: number; months: number;
+  }>();
+
+  for (const p of data) {
+    const yr = p.year;
+    if (!map.has(yr)) map.set(yr, { revenue: 0, expense: 0, nop: 0, gop: 0, months: 0 });
+    const agg = map.get(yr)!;
+
+    agg.revenue += p.total_revenue ?? 0;
+    agg.gop     += p.gross_operating_profit ?? 0;
+    agg.nop     += p.nop_hotel ?? 0;
+    agg.expense +=
+      (p.rooms_expense              ?? 0) +
+      (p.fb_expense                 ?? 0) +
+      (p.admin_general              ?? 0) +
+      (p.sales_marketing            ?? 0) +
+      (p.property_ops_maintenance   ?? 0) +
+      (p.utilities                  ?? 0) +
+      (p.management_fees            ?? 0) +
+      (p.property_taxes             ?? 0) +
+      (p.insurance                  ?? 0);
+    agg.months++;
+  }
+
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([year, agg]) => {
+      const isPartial = agg.months < 12;
+      const scale = isPartial ? 12 / agg.months : 1;
+      return {
+        year,
+        months: agg.months,
+        revenue: agg.revenue,
+        expense: agg.expense,
+        nop: agg.nop,
+        gop: agg.gop,
+        nopPct: agg.revenue > 0 ? agg.nop / agg.revenue : 0,
+        gopPct: agg.revenue > 0 ? agg.gop / agg.revenue : 0,
+        isPartial,
+        annualizedRevenue: agg.revenue * scale,
+        annualizedExpense: agg.expense * scale,
+      };
+    });
+}
