@@ -210,85 +210,64 @@ function ThreeYearTrendChart({ data }: { data: MonthlyPeriod[] }) {
       .filter((d): d is TrendDatum => d !== null);
   }, [summaries]);
 
-  const partialYears = chartData.filter((d) => d.year.endsWith("*"));
-
   if (chartData.length === 0) return null;
 
   const maxDollar = Math.max(...chartData.map((d) => Math.max(d.revenue, d.expense)));
-  const dollarTickFmt = (v: number) =>
-    Math.abs(v) >= 1_000_000
-      ? `$${(v / 1_000_000).toFixed(1)}M`
-      : `$${(v / 1_000).toFixed(0)}K`;
+  const fmtDollar = (v: number) =>
+    v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : `$${(v / 1_000).toFixed(0)}K`;
+
+  const BAR_HEIGHT = 220; // px height of bar area
+  const toBarPx = (v: number) => (v / (maxDollar * 1.05)) * BAR_HEIGHT;
+
+  const partialYears = chartData.filter((d) => d.year.endsWith("*"));
 
   return (
     <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
-      <div className="mb-3">
+      <div className="mb-4">
         <h3 className="text-sm font-semibold text-slate-200">3-Year Revenue & Expense Trend</h3>
         <p className="text-xs text-slate-400 mt-0.5">
           NOP margin compression — revenue growing, expenses growing faster
         </p>
       </div>
-      <div className="h-72 w-full">
-        <ResponsiveContainer width="99%" height={288}>
-          <ComposedChart
-            data={chartData}
-            barCategoryGap="30%"
-            barGap={8}
-            margin={{ top: 8, right: 48, left: 16, bottom: 4 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-            <XAxis dataKey="year" stroke="#94a3b8" fontSize={12} tick={{ fill: "#94a3b8" }} />
-            {/* Left Y-axis — dollars */}
-            <YAxis
-              yAxisId="dollars"
-              orientation="left"
-              stroke="#94a3b8"
-              fontSize={11}
-              tickFormatter={dollarTickFmt}
-              domain={[0, "auto"]}
-              tick={{ fill: "#94a3b8" }}
-            />
-            {/* Right Y-axis — percent */}
-            <YAxis
-              yAxisId="pct"
-              orientation="right"
-              stroke="#f59e0b"
-              fontSize={11}
-              tickFormatter={(v: number) => `${v.toFixed(1)}%`}
-              domain={[0, 40]}
-              tick={{ fill: "#f59e0b" }}
-            />
-            <Tooltip content={<TrendTooltip />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
-            <Legend
-              wrapperStyle={{ fontSize: "11px", color: "#94a3b8", paddingTop: "8px" }}
-            />
-            <Bar
-              yAxisId="dollars"
-              dataKey="revenue"
-              name="Total Revenue"
-              fill="#3b82f6"
-              radius={[3, 3, 0, 0]}
-            />
-            <Bar
-              yAxisId="dollars"
-              dataKey="expense"
-              name="Total Expense"
-              fill="#f87171"
-              radius={[3, 3, 0, 0]}
-            />
-            <Line
-              yAxisId="pct"
-              type="monotone"
-              dataKey="nopPct"
-              name="NOP Margin %"
-              stroke="#f59e0b"
-              strokeWidth={2}
-              dot={{ fill: "#f59e0b", r: 4 }}
-              activeDot={{ r: 6 }}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
+
+      {/* Custom bar chart */}
+      <div className="flex items-end justify-around gap-6 pb-2" style={{ height: `${BAR_HEIGHT + 40}px` }}>
+        {chartData.map((d) => (
+          <div key={d.year} className="flex flex-col items-center gap-1 flex-1">
+            {/* NOP margin label */}
+            <div className="text-xs font-semibold text-amber-400 mb-1">{d.nopPct.toFixed(1)}% NOP</div>
+            {/* Bars */}
+            <div className="flex items-end gap-1.5 justify-center" style={{ height: `${BAR_HEIGHT}px` }}>
+              {/* Revenue bar */}
+              <div className="relative flex flex-col items-center">
+                <span className="text-xs text-blue-400 font-medium mb-1">{fmtDollar(d.revenue)}</span>
+                <div
+                  className="w-14 rounded-t bg-blue-500"
+                  style={{ height: `${toBarPx(d.revenue)}px` }}
+                />
+              </div>
+              {/* Expense bar */}
+              <div className="relative flex flex-col items-center">
+                <span className="text-xs text-red-400 font-medium mb-1">{fmtDollar(d.expense)}</span>
+                <div
+                  className="w-14 rounded-t bg-red-400"
+                  style={{ height: `${toBarPx(d.expense)}px` }}
+                />
+              </div>
+            </div>
+            {/* Year label */}
+            <div className="text-xs text-slate-400 mt-1 font-medium">{d.year}</div>
+          </div>
+        ))}
       </div>
+
+      {/* Legend */}
+      <div className="flex items-center gap-4 justify-center mt-2 text-xs text-slate-400">
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-500 inline-block" /> Total Revenue</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-400 inline-block" /> Total Expense</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-1 bg-amber-400 inline-block" /> NOP Margin %</span>
+      </div>
+
       {partialYears.length > 0 && (
         <p className="text-xs text-slate-500 mt-2">
           {partialYears.map((d) => `* ${d.year.replace("*", "")} — partial year data (${d.months} months)`).join(" · ")}
