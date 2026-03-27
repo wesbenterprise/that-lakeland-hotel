@@ -228,8 +228,8 @@ function ThreeYearTrendChart({ data }: { data: MonthlyPeriod[] }) {
           NOP margin compression — revenue growing, expenses growing faster
         </p>
       </div>
-      <div className="h-72">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="h-72 w-full">
+        <ResponsiveContainer width="99%" height={288}>
           <ComposedChart
             data={chartData}
             barCategoryGap="30%"
