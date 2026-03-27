@@ -1,11 +1,31 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, Component, type ReactNode } from "react";
+
+// ─── Error Boundary ──────────────────────────────────────────────────────────
+class SectionErrorBoundary extends Component<{ children: ReactNode; label: string }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode; label: string }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4 text-xs text-slate-500">
+          {this.props.label} — data unavailable
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { useMonthlyData } from "@/lib/hooks";
 import { MonthlyPeriod } from "@/lib/types";
 import {
-  formatCurrency, formatPct, monthName, fullMonthName, cn, aggregateByYear, YearSummary,
+  formatCurrency, formatPct, monthName, fullMonthName, cn, aggregateByYear,
 } from "@/lib/utils";
+import type { YearSummary } from "@/lib/utils";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, ReferenceLine, Cell, ComposedChart, Line,
@@ -844,13 +864,19 @@ export default function BudgetPage() {
       </div>
 
       {/* NEW: Margin Compression Callout */}
-      <MarginCompressionCallout data={data} />
+      <SectionErrorBoundary label="Margin Compression Summary">
+        <MarginCompressionCallout data={data} />
+      </SectionErrorBoundary>
 
       {/* NEW: 3-Year Trend Chart */}
-      <ThreeYearTrendChart data={data} />
+      <SectionErrorBoundary label="3-Year Trend Chart">
+        <ThreeYearTrendChart data={data} />
+      </SectionErrorBoundary>
 
       {/* NEW: YTD Pivot Table */}
-      <YTDPivotTable data={data} />
+      <SectionErrorBoundary label="YTD Pivot Table">
+        <YTDPivotTable data={data} />
+      </SectionErrorBoundary>
 
       {/* EXISTING: YTD Scorecard */}
       <YTDScorecard data={data} year={selectedYear} />
