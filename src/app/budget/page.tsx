@@ -232,12 +232,12 @@ function ThreeYearTrendChart({ data }: { data: MonthlyPeriod[] }) {
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={chartData}
-            barCategoryGap="20%"
-            barGap={4}
-            margin={{ top: 8, right: 40, left: 10, bottom: 4 }}
+            barCategoryGap="30%"
+            barGap={8}
+            margin={{ top: 8, right: 48, left: 16, bottom: 4 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-            <XAxis dataKey="year" stroke="#94a3b8" fontSize={12} />
+            <XAxis dataKey="year" stroke="#94a3b8" fontSize={12} tick={{ fill: "#94a3b8" }} />
             {/* Left Y-axis — dollars */}
             <YAxis
               yAxisId="dollars"
@@ -245,7 +245,8 @@ function ThreeYearTrendChart({ data }: { data: MonthlyPeriod[] }) {
               stroke="#94a3b8"
               fontSize={11}
               tickFormatter={dollarTickFmt}
-              domain={[0, Math.ceil(maxDollar * 1.1)]}
+              domain={[0, "auto"]}
+              tick={{ fill: "#94a3b8" }}
             />
             {/* Right Y-axis — percent */}
             <YAxis
@@ -254,7 +255,8 @@ function ThreeYearTrendChart({ data }: { data: MonthlyPeriod[] }) {
               stroke="#f59e0b"
               fontSize={11}
               tickFormatter={(v: number) => `${v.toFixed(1)}%`}
-              domain={[0, "auto"]}
+              domain={[0, 40]}
+              tick={{ fill: "#f59e0b" }}
             />
             <Tooltip content={<TrendTooltip />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
             <Legend
